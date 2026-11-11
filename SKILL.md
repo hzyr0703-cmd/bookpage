@@ -1,0 +1,122 @@
+---
+name: bookpage
+description: 把书的一个主题编成一张离线可开的交互教学页：模型只写结构化 IR（JSON），由确定性渲染器产出单文件 HTML，同一份 IR 两次构建字节级相同。当用户要把某本书/某章/某主题做成可点击的学习页、且希望结果稳定可复现（不靠每次手工拼 DOM）时使用。
+---
+
+# bookpage
+
+一句话：**你写 IR，渲染器写 HTML。**
+
+模型不产 DOM、不产 CSS、不产 JS —— 只产一份受 schema 约束的 JSON。渲染器（`bookpage.py`，约 1000 行，纯标准库）负责把 IR 变成单文件 HTML，因此：
+
+- 同一份 IR 两次 `build` → **sha256 相同**
+- `lint` 在落盘前就把结构错误挡住（带错误码 + 字段路径）
+- 不需要浏览器、不需要 pip、不需要模板抄写
+
+## 什么时候用这个，什么时候用 book-to-webpage
+
+| 情况 | 用哪个 |
+| --- | --- |
+| 一次性交付、只求好看，不要求可复现 | book-to-webpage（组件资产丰富，但每次结果不同） |
+| 要可回归、要能只改一处再重渲、要在 CI 里验 | **bookpage（本 skill）** |
+| 需要全书概览模式（框架网格/章节地图/概念地图） | book-to-webpage（本 skill 目前只做“单主题”模式） |
+
+## 流程
+
+```
+① 拆书 → ② 只读当前章 → ③ 写 IR.json → ④ lint → ⑤ 按错误码改 → ⑥ build → ⑦ 自检
+```
+
+1. **拆书**：复用 `book-to-webpage` 的 `scripts/extract.py`（产出 `full_text.txt` + `metadata.json`），或直接用 `book-to-skill` 的 `.kb/`。全书超 5 万 token 时**不要整本读**：先 grep 章节标题定位边界，只切当前章。
+2. **选题**：一个页面讲一个主题，选 4–7 节；每节一个组件；主题散布全书时先把相关章节列出来，再统一取用。
+3. **写 IR**：严格按下面的骨架。`signature` 只能取白名单值；字数上限先看契约表，别写完再被 lint 打回。
+4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
+5. **修**：只按错误码改对应字段，不重写整份 IR。
+6. **build**：`python bookpage.py build ir.json out.html`。
+7. **自检**：产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
+
+## IR 骨架
+
+```json
+{
+  "schema": "bookpage/1",
+  "meta": {"book": "书名", "author": "作者", "mode": "theme", "theme": "paper",
+           "topic": "本节主题", "sources": ["第 N 章 …"]},
+  "hero": {"eyebrow": "第 N 章 · 副题", "title": "一句钩子", "lede": "60–110 字导语",
+           "thesis": "一句判断，20–60 字"},
+  "sections": [
+    {"id": "s1", "label": "3–8 字小标题", "lead": "一句话引入",
+     "source": "第 N 章", "signature": "causal_chain",
+     "data": {"steps": [{"title": "≤10 字", "text": "≤120 字", "detail": "≤160 字（可选）"}]}}
+  ],
+  "questions": [{"q": "≤40 字", "hint": "≤60 字（可选）"}]
+}
+```
+
+硬规则：
+
+- `id` 必须匹配 `^[a-z][a-z0-9_-]{0,15}$`，且在整份 IR 内唯一
+- `theme` 只能是 `paper` / `minimal` / `dark`
+- `sections` 4–7 个；`questions` 2–6 个
+- 全部字符串走同一套转义，**不要在字段里写 HTML**（写 `<b>` 会被原样转义显示）
+
+## 组件契约（`signature` 白名单，共 11 个）
+
+| signature | data 必需键 | 数量 | 字数上限 | 交互 |
+| --- | --- | --- | --- | --- |
+| `causal_chain` | `steps[{title,text,detail?}]` | 2–6 | title 10 / text 120 / detail 160 | 点任一步展开该步在循环中的位置 |
+| `type_selector` | `types[{name,text,tagline?}]` | 2–5 | name 8 / text 120 / tagline 20 | 按钮切换右侧说明 |
+| `matrix` | `label_header?`、`cols[2–4]`、`rows[{label,cells}]` | rows 2–6 | cols 16 / label 16 / cell 40 | 行悬停整行高亮 |
+| `timeline` | `items[{when,title,text?}]` | 3–8 | when 12 / title 16 / text 100 | 静态时间轴 |
+| `decision_tree` | `root{q,options[{label,result\|next}]}` | 每层 2–3 | q 60 / label 16 / result 120 | 嵌套折叠，深度 ≤3 |
+| `questions` | `items[{q,hint?}]` | 2–6 | q 40 / hint 60 | 点击翻出提示 |
+| `story_card` | `title`、`body`、`label?` | 1 张 | title 20 / body 200 / label 12 | 静态卡片 |
+| `before_after` | `left/right{title,points[]}` | 每侧 2–5 | title 10 / point 40 | 双栏对照 |
+| `accordion` | `items[{title,body}]` | 2–7 | title 16 / body 200 | 原生折叠（无 JS 也能用） |
+| `quote_card` | `text`、`speaker?`、`source?` | 1 张 | text 120 / speaker 20 / source 40 | 静态引语 |
+| `prose` | `paragraphs[]` | 1–5 | 每段 240 | 无交互，逃生口 |
+
+`matrix` 的 `cells` 数量必须**恰好等于** `cols` 数量；`decision_tree` 的每个选项必须且只能有 `result` 或 `next` 之一。
+
+## 错误码 → 改法
+
+| 码 | 含义 | 怎么修 |
+| --- | --- | --- |
+| `E100` | schema 字段缺失或不是 `bookpage/1` | 补 `"schema": "bookpage/1"` |
+| `E101` | 未知 `signature` | 从上面 11 个里选，别自造 |
+| `E102` | 必需键缺失 | 按路径补键；`result/next` 二选一的错误也报这个 |
+| `E103` | 类型不对（该 list 给了 string 等） | 改成对应容器类型 |
+| `E104` | 超出上限（字数/数量/深度） | 压缩文本或拆节 |
+| `E105` | `id` 重复 | 换一个唯一 id |
+| `E201` | 产物仍有 `{{…}}` 占位符 | 说明 IR 没走到渲染路径，检查是否跳过了 `build` |
+| `E202` | 未知主题 | `theme` 改成 `paper/minimal/dark` |
+
+## 命令
+
+```bash
+python bookpage.py lint   ir.json                    # 校验，退出码 1 表示失败
+python bookpage.py build  ir.json out.html           # 渲染
+python bookpage.py build  ir.json out.html --degrade # 出错的节降级为 prose，产物留 <!-- degraded -->
+python bookpage.py tokens <文本文件>                 # 中文感知的 token 估算
+python bookpage.py chapters <文本文件>               # 中文章节计数（第N章/第N回/Chapter N）
+python tests/selftest.py                             # A1–A7 七条自检
+```
+
+退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。
+
+## 写作要求（衔接层仍是你的活）
+
+渲染器只管结构与版式，**内容质量仍由你负责**：
+
+- `lead` 写一句“为什么读这一节”，不要复述 `label`
+- 每节正文控制在 1–2 句有信息量的话，删掉“本章介绍了…”这类空转
+- `thesis` 必须是一个可被反驳的判断，不能是“很重要”
+- `questions` 用来留出思考缺口，不要写成复习题
+- 出处（`source`）写具体章名，不写“全书”
+
+## 不要做
+
+- 不要手改 `out.html`：下次 `build` 会覆盖，改动要落回 IR
+- 不要改主题变量名（21 个 `--` 变量是渲染器与主题的接口）
+- 不要在 IR 里塞 HTML/脚本片段
+- 不要在 `data` 里加白名单外的键（会被忽略，不会报错，等于白写）

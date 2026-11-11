@@ -1,0 +1,3 @@
+# bookpage 金标准哈希；改版后用 python tests/test_golden.py --update 重钉
+demo=65767738fb8b1f5318e6de162999eda80369ad581a55c89a1c631449f88881ee
+all=6d435f03e0941db8664c07b2010cb0f325bdd1e385447e6bd2c1b40e6ba887ef

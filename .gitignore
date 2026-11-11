@@ -1,0 +1,6 @@
+# 产物与自检图片不入库
+out/
+*.png
+__pycache__/
+.mut/
+smoke.html
