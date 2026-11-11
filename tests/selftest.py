@@ -185,6 +185,42 @@ def a9():
     return "epub/docx/纯文本提取 + 章节计数 + pdf/mobi 缺依赖报错"
 
 
+
+def a10():
+    tmp = tempfile.mkdtemp(prefix="bookpage-a10-")
+    ov = os.path.join(ROOT, "demo-overview.json")
+    out1 = os.path.join(tmp, "o1.html")
+    out2 = os.path.join(tmp, "o2.html")
+    p0 = run(["lint", ov])
+    assert p0.returncode == 0, "overview lint 退出码 %d：%s" % (p0.returncode, p0.stdout + p0.stderr)
+    p1 = run(["build", ov, out1])
+    p2 = run(["build", ov, out2])
+    assert p1.returncode == 0 and p2.returncode == 0, "overview build 失败：%s" % (p1.stdout + p1.stderr)
+    h1, h2 = sha256(out1), sha256(out2)
+    assert h1 == h2, "overview 两次构建哈希不同"
+    html = open(out1, encoding="utf-8").read()
+    assert 'role="tab"' not in html and "panel-" not in html, "overview 不该出现 tab/panel"
+    assert 'class="fw"' in html and 'class="cm-row"' in html and 'class="rule"' in html, "overview 缺区块标记"
+    assert "{{" not in html and "http://" not in html, "overview 含占位符或外部引用"
+    ir = read_json(ov)
+    for key in ("frameworks", "chapterMap", "conceptMap", "decisionRules"):
+        ir.pop(key, None)
+    bad = write_json_tmp(tmp, "empty-overview.json", ir)
+    p = run(["lint", bad])
+    assert p.returncode == 1 and "E102" in (p.stdout + p.stderr), "空 overview 未报 E102"
+    ir2 = read_json(ov)
+    ir2["sections"] = []
+    bad2 = write_json_tmp(tmp, "with-sections.json", ir2)
+    p2b = run(["lint", bad2])
+    assert p2b.returncode == 1 and "E100" in (p2b.stdout + p2b.stderr), "overview 带 sections 未报 E100"
+    ir3 = read_json(ov)
+    ir3["conceptMap"][0]["relation"] = "因果报应"
+    bad3 = write_json_tmp(tmp, "bad-relation.json", ir3)
+    p3 = run(["lint", bad3])
+    assert p3.returncode == 1 and "relation" in (p3.stdout + p3.stderr), "非法 relation 未被拒"
+    return "overview 4 区块，两次同哈希 %s，三条拒绝路径" % h1[:16]
+
+
 def main():
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
@@ -194,6 +230,7 @@ def main():
     check("A6", "产物无占位符、tab↔panel 对齐、无外部引用", a6)
     check("A7", "干净环境零依赖直跑", a7)
     check("A9", "书源提取：docx/epub/纯文本 + 缺依赖报错", a9)
+    check("A10", "overview 模式：4 区块渲染 + 拒绝路径", a10)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

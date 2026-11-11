@@ -33,6 +33,9 @@ python bookpage.py lint demo.json
 # 渲染：<ir.json> <out.html>
 python bookpage.py build demo.json out/demo.html
 
+# 全书概览模式（mode=overview，单页滚动、无 tab）：框架 / 章节地图 / 概念地图 / 决策规则
+python bookpage.py build demo-overview.json out/demo-overview.html
+
 # 模板校验失败但仍想看效果：把出错的 section 降级成 prose，并留 <!-- degraded -->
 python bookpage.py build demo.json out/demo.html --degrade
 
@@ -58,15 +61,16 @@ python tests/selftest.py
 
 | 编号 | 断言 | 现状 |
 | --- | --- | --- |
-| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`be31060166843639…`，25,334 bytes） |
+| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`42a8d1400d5bb007…`，27,221 bytes） |
 | A2 | 未知 signature → 退出码 1，报 E101 且指出 `sections[i].signature` | PASS |
 | A3 | 缺必需键 → 退出码 1，报 E102 且指出键名 | PASS |
 | A4 | 中文样书章节计数 = 8 | PASS 8/8 |
 | A5 | 中文 token 估算 ≥ 上游算法的 8 倍 | PASS：3,379 vs 202（约 17 倍） |
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
-| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（25,334 bytes） |
-| A8 | 金标准回归：两份样例 IR 产物哈希钉死 + 12 个组件标记齐备 | PASS（demo `be31060166…` / all `ad7ca851e5…`，12/12） |
+| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（27,221 bytes） |
+| A8 | 金标准回归：三份样例 IR（demo / all / overview）哈希钉死 + 12 个组件标记齐备 | PASS（demo `42a8d1400d…` / all `c9f7c88480…` / overview `0f661f2118…`，12/12） |
 | A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖或解析失败时 rc=2 并说明原因；本机同时有 pypdf+reportlab 时再跑一份真 PDF | PASS（公版书 epub 46,157 字符 / 9 章；真 PDF 3 章） |
+| A10 | overview 模式：四区块渲染、两次构建同哈希、无 tab/panel、无外部引用；空区块报 E102、误写 sections 报 E100、非法 relation 被拒 | PASS（`29e816814f31e5a2…`，三条拒绝路径） |
 
 ## 视觉验证
 
@@ -110,6 +114,13 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 书源侧补了 `extract`：`docx`、`epub` 用标准库直读（epub 按 OPF spine 顺序，不是按文件名字典序），
 `pdf` 需 `pypdf`、`mobi/azw3` 需 calibre —— 缺依赖时以退出码 2 明确说缺什么，不产出空文本。
 同一本公版书走 `.epub` 与 `.txt` 两条路径，字符数 46,157 vs 46,497、章节数均为 9。
+
+## 两种模式
+
+| mode | 页面形态 | 结构 |
+| --- | --- | --- |
+| `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 |
+| `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 |
 
 ## 组件（12 个，含 `prose` 逃生口）
 
@@ -165,6 +176,7 @@ bookpage 把“拼 DOM”中不变的 90% 固化进渲染器，模型只产 IR�
 bookpage/
 ├── bookpage.py            # 渲染器 + lint + tokens + chapters + extract（单文件）
 ├── demo.json              # 7 节示例 IR（《置身事内》房地产与地方财政）
+├── demo-overview.json     # 全书概览 IR（《阿Ｑ正傳》：4 框架 / 9 章 / 4 组概念 / 5 条规则）
 ├── out/demo.html          # 示例产物（离线单文件）
 ├── tests/
 │   ├── selftest.py        # A1–A7 + A9

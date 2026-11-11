@@ -19,7 +19,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | --- | --- |
 | 一次性交付、只求好看，不要求可复现 | book-to-webpage（组件资产丰富，但每次结果不同） |
 | 要可回归、要能只改一处再重渲、要在 CI 里验 | **bookpage（本 skill）** |
-| 需要全书概览模式（框架网格/章节地图/概念地图） | book-to-webpage（本 skill 目前只做“单主题”模式） |
+| 需要全书概览（框架网格/章节地图/概念地图/决策规则） | **bookpage 的 `mode: overview`**（见下节） |
 
 ## 流程
 
@@ -79,6 +79,35 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 
 `matrix` 的 `cells` 数量必须**恰好等于** `cols` 数量；`decision_tree` 的每个选项必须且只能有 `result` 或 `next` 之一。
 
+
+## 概览模式（`meta.mode = "overview"`）
+
+一个页面讲透**整本书的骨架**，不用 tab，单页滚动。此时**不要写 `sections`**（写了会报 E100），改从下面四个区块里挑一个或几个（至少一个非空，否则 E102）：
+
+```json
+{
+  "schema": "bookpage/1",
+  "meta": {"book": "书名", "author": "作者", "mode": "overview", "theme": "paper",
+           "topic": "全书概览", "sources": ["版本 / 译本 / 年份"]},
+  "hero": {"eyebrow": "作者 · 年份", "title": "一句书名级的钩子", "lede": "60–110 字全书导语",
+           "thesis": "20–60 字的全书判断"},
+  "frameworks":  [{"title": "≤14 字", "thesis": "≤40 字", "points": ["≤30 字", "…2–4 条"]}],
+  "chapterMap":  [{"n": 1, "title": "≤20 字", "gist": "≤40 字", "mark": "≤10 字（可选）"}],
+  "conceptMap":  [{"name": "≤14 字", "relation": "因果|对立|组成|递进", "items": ["≤30 字", "…2–5 条"]}],
+  "decisionRules": [{"if": "≤40 字", "then": "≤40 字", "else": "≤40 字（可选）"}],
+  "questions": [{"q": "≤40 字", "hint": "≤60 字（可选）"}]
+}
+```
+
+| 区块 | 数量 | 渲染形态 |
+| --- | --- | --- |
+| `frameworks` | 3–6 张 | 卡片网格：标题 + 一句论点 + 2–4 个要点 |
+| `chapterMap` | 3–12 行 | 数字卡网格：第 N 章 / 标题 / 一句话内容 / 可选标记（如“换算起点”） |
+| `conceptMap` | 2–6 组 | 关系徽章 + 概念名 + 2–5 个词条 |
+| `decisionRules` | 2–5 条 | 当…则…否则… 三行式规则卡 |
+
+概览模式的判断标准：读者滚完一页，能说出**这本书由几个框架组成、每章各干什么、概念之间怎么连**。章节地图按原书顺序写全（`n` 连续更易读），不要挑“重要章节”跳跃编号。
+
 ## 错误码 → 改法
 
 | 码 | 含义 | 怎么修 |
@@ -101,7 +130,7 @@ python bookpage.py build  ir.json out.html --degrade # 出错的节降级为 pro
 python bookpage.py tokens <文本文件>                 # 中文感知的 token 估算
 python bookpage.py chapters <文本文件>               # 中文章节计数（第N章/第N回/Chapter N）
 python bookpage.py extract <书> [-o out.txt]         # 书源 → 纯文本（docx/epub 零依赖，pdf 需 pypdf）
-python tests/selftest.py                             # A1–A7 + A9（书源提取）自检
+python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）自检
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。

@@ -184,6 +184,31 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 @media (max-width:880px){.selector,.ba,.qgrid{grid-template-columns:1fr}.ba-col.right{border-left:0;border-top:1px solid var(--line)}.chain{grid-template-columns:1fr 1fr}}
 @media (max-width:520px){.page{padding:0 16px 72px}.hero{padding:36px 0 20px}.chain{grid-template-columns:1fr}.matrix{display:block;overflow-x:auto}nav.tabs{top:40px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---- 概览模式（overview）：框架网格 / 章节地图 / 概念地图 / 决策规则 ---- */
+.frameworks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.fw{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.fw h3{margin:0 0 8px;font-size:17px;line-height:1.4}
+.fw .fwthesis{margin:0 0 10px;color:var(--ink-soft);font-size:14.5px;line-height:1.75}
+.fw ul{margin:0;padding-left:18px;font-size:14px;line-height:1.9;color:var(--ink)}
+.chaptermap{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.cm-row{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.cm-n{font-size:12px;letter-spacing:.08em;color:var(--red)}
+.cm-title{font-size:16px;font-weight:600;margin:2px 0 4px}
+.cm-gist{font-size:14px;color:var(--ink-soft);line-height:1.75}
+.cm-mark{display:inline-block;margin-top:7px;font-size:12px;color:var(--muted);border:1px dashed var(--line);border-radius:999px;padding:2px 10px}
+.cm-group{margin-bottom:20px}
+.cm-rel{display:inline-block;font-size:12px;color:var(--red);border:1px solid var(--red);border-radius:999px;padding:1px 10px;margin-bottom:8px}
+.cm-name{font-size:16px;font-weight:600;margin-bottom:8px}
+.cm-items{display:flex;flex-wrap:wrap;gap:8px}
+.cm-item{font-size:13.5px;background:var(--surface-strong);border:1px solid var(--line);border-radius:8px;padding:6px 11px}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+.rule div{font-size:14.5px;line-height:1.75}
+.rule b{color:var(--red);margin-right:8px}
+.ov-block{margin-top:44px}
+.ov-block h2{font-size:19px;margin:0 0 6px}
+.ov-block .lead{margin:0 0 16px}
+@media (max-width:520px){.frameworks{grid-template-columns:1fr}}
 """
 
 # ---------------------------------------------------------------- 组件层 JS
@@ -689,6 +714,102 @@ VALIDATORS = {
 SIGNATURES = sorted(RENDERERS)
 
 
+# ---------------------------------------------------------------- 概览模式校验
+RELATIONS = ("因果", "对立", "组成", "递进")
+
+
+def _v_overview(errs, ir):
+    """overview 模式不用 sections，改校验四个可选区块（至少一个非空）。"""
+    blocks = 0
+    fw = ir.get("frameworks")
+    if fw is not None:
+        blocks += 1
+        if not isinstance(fw, list):
+            errs.append(("E103", "frameworks", "期望 array，得到 %s" % _typename(fw)))
+        elif not (3 <= len(fw) <= 6):
+            errs.append(("E104", "frameworks", "%d 个，期望 3–6" % len(fw)))
+        else:
+            for i, f in enumerate(fw):
+                p = "frameworks[%d]" % i
+                if not isinstance(f, dict):
+                    errs.append(("E103", p, "期望 object，得到 %s" % _typename(f)))
+                    continue
+                fv_str(errs, p, f, "title", 1, 14)
+                fv_str(errs, p, f, "thesis", 1, 40)
+                pts = fv_list(errs, p, f, "points", 2, 4)
+                if pts:
+                    for j, t in enumerate(pts):
+                        if not isinstance(t, str):
+                            errs.append(("E103", "%s.points[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
+                        elif not (1 <= len(t) <= 30):
+                            errs.append(("E104", "%s.points[%d]" % (p, j), "%d 字，期望 1–30" % len(t)))
+
+    cm = ir.get("chapterMap")
+    if cm is not None:
+        blocks += 1
+        if not isinstance(cm, list):
+            errs.append(("E103", "chapterMap", "期望 array，得到 %s" % _typename(cm)))
+        elif not (3 <= len(cm) <= 12):
+            errs.append(("E104", "chapterMap", "%d 个，期望 3–12" % len(cm)))
+        else:
+            for i, row in enumerate(cm):
+                p = "chapterMap[%d]" % i
+                if not isinstance(row, dict):
+                    errs.append(("E103", p, "期望 object，得到 %s" % _typename(row)))
+                    continue
+                fw_u = row.get("n")
+                if not isinstance(fw_u, int) or isinstance(fw_u, bool) or not (1 <= fw_u <= 99):
+                    errs.append(("E103", p + ".n", "期望 1–99 的整数，得到 %s" % _typename(fw_u)))
+                fv_str(errs, p, row, "title", 1, 20)
+                fv_str(errs, p, row, "gist", 1, 40)
+                fv_str(errs, p, row, "mark", 0, 10, required=False)
+
+    cg = ir.get("conceptMap")
+    if cg is not None:
+        blocks += 1
+        if not isinstance(cg, list):
+            errs.append(("E103", "conceptMap", "期望 array，得到 %s" % _typename(cg)))
+        elif not (2 <= len(cg) <= 6):
+            errs.append(("E104", "conceptMap", "%d 组，期望 2–6" % len(cg)))
+        else:
+            for i, g in enumerate(cg):
+                p = "conceptMap[%d]" % i
+                if not isinstance(g, dict):
+                    errs.append(("E103", p, "期望 object，得到 %s" % _typename(g)))
+                    continue
+                fv_str(errs, p, g, "name", 1, 14)
+                rel = fv_str(errs, p, g, "relation", 1, 6)
+                if rel and rel not in RELATIONS:
+                    errs.append(("E100", p + ".relation", "未知关系 %r（可选 %s）" % (rel, "/".join(RELATIONS))))
+                items = fv_list(errs, p, g, "items", 2, 5)
+                if items:
+                    for j, t in enumerate(items):
+                        if not isinstance(t, str):
+                            errs.append(("E103", "%s.items[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
+                        elif not (1 <= len(t) <= 30):
+                            errs.append(("E104", "%s.items[%d]" % (p, j), "%d 字，期望 1–30" % len(t)))
+
+    dr = ir.get("decisionRules")
+    if dr is not None:
+        blocks += 1
+        if not isinstance(dr, list):
+            errs.append(("E103", "decisionRules", "期望 array，得到 %s" % _typename(dr)))
+        elif not (2 <= len(dr) <= 5):
+            errs.append(("E104", "decisionRules", "%d 条，期望 2–5" % len(dr)))
+        else:
+            for i, r in enumerate(dr):
+                p = "decisionRules[%d]" % i
+                if not isinstance(r, dict):
+                    errs.append(("E103", p, "期望 object，得到 %s" % _typename(r)))
+                    continue
+                fv_str(errs, p, r, "if", 1, 40)
+                fv_str(errs, p, r, "then", 1, 40)
+                fv_str(errs, p, r, "else", 0, 40, required=False)
+
+    if blocks == 0:
+        errs.append(("E102", "frameworks", "overview 模式至少要有 frameworks/chapterMap/conceptMap/decisionRules 之一"))
+
+
 # ---------------------------------------------------------------- 顶层校验
 def lint_ir(ir):
     """返回 [(code, path, msg)]，空列表代表通过。"""
@@ -708,8 +829,8 @@ def lint_ir(ir):
     fv_str(errs, "meta", meta, "author", 0, 30, required=False)
     fv_str(errs, "meta", meta, "topic", 0, 30, required=False)
     mode = fv_str(errs, "meta", meta, "mode", 1, 12)
-    if mode and mode != "theme":
-        errs.append(("E100", "meta.mode", "v1 只支持 theme，收到 %r" % mode))
+    if mode and mode not in ("theme", "overview"):
+        errs.append(("E100", "meta.mode", "只支持 theme / overview，收到 %r" % mode))
     theme = fv_str(errs, "meta", meta, "theme", 1, 12)
     if theme and theme not in THEMES:
         errs.append(("E202", "meta.theme", "未知主题 %r（可选 %s）" % (theme, "/".join(THEME_NAMES))))
@@ -733,11 +854,15 @@ def lint_ir(ir):
     fv_str(errs, "hero", hero, "lede", 60, 140)
     fv_str(errs, "hero", hero, "thesis", 0, 60, required=False)
 
-    secs = ir.get("sections")
+    if mode == "overview":
+        if "sections" in ir:
+            errs.append(("E100", "sections", "overview 模式不用 sections，改用 frameworks/chapterMap/conceptMap/decisionRules"))
+        _v_overview(errs, ir)
+    secs = ir.get("sections") if mode != "overview" else []
     if not isinstance(secs, list):
         errs.append(("E103", "sections", "期望 array，得到 %s" % _typename(secs)))
         secs = []
-    elif not (1 <= len(secs) <= 8):
+    elif secs and not (1 <= len(secs) <= 8):
         errs.append(("E104", "sections", "%d 个，期望 1–8" % len(secs)))
 
     seen = set()
@@ -789,8 +914,141 @@ def format_error(e):
     return "%s %s: %s" % (code, path, msg) if path else "%s: %s" % (code, msg)
 
 
+def render_overview(ir):
+    meta = ir.get("meta") or {}
+    hero = ir.get("hero") or {}
+    book = meta.get("book") or ""
+    theme = meta.get("theme") if meta.get("theme") in THEMES else "paper"
+    theme_name = {"paper": "暖纸", "minimal": "极简", "dark": "夜读"}.get(theme, "暖纸")
+
+    out = []
+    out.append("<!DOCTYPE html>")
+    out.append('<html lang="zh-CN" data-theme="%s">' % theme)
+    out.append("<head>")
+    out.append('<meta charset="utf-8">')
+    out.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    title = "《%s》" % book if book else ""
+    if hero.get("title"):
+        title = (title + " · " + hero["title"]) if title else hero["title"]
+    out.append("<title>%s</title>" % esc(title))
+    out.append('<meta name="generator" content="bookpage %s">' % VERSION)
+    out.append("<style>")
+    out.append(theme_block(theme))
+    out.append(BASE_CSS)
+    out.append("</style>")
+    out.append("</head>")
+    out.append("<body>")
+
+    crumb = " · ".join([x for x in (book, meta.get("topic")) if x])
+    out.append('<div class="topbar"><span class="crumb">%s</span></div>' % esc(crumb))
+    out.append('<main class="page">')
+    out.append('<header class="hero">')
+    if hero.get("eyebrow"):
+        out.append('<div class="eyebrow">%s</div>' % esc(hero["eyebrow"]))
+    out.append("<h1>%s</h1>" % esc(hero.get("title") or ""))
+    if hero.get("lede"):
+        out.append('<p class="lede">%s</p>' % esc(hero["lede"]))
+    if hero.get("thesis"):
+        out.append('<div class="thesis">%s</div>' % esc(hero["thesis"]))
+    out.append("</header>")
+
+    fw = [x for x in (ir.get("frameworks") or []) if isinstance(x, dict)]
+    if fw:
+        out.append('<section class="ov-block">')
+        out.append("<h2>全书骨架</h2>")
+        out.append('<p class="lead">先看四个框架，再看它们怎么互相支撑。</p>')
+        out.append('<div class="frameworks">')
+        for f in fw:
+            out.append('<div class="fw"><h3>%s</h3>' % esc(f.get("title") or ""))
+            out.append('<p class="fwthesis">%s</p>' % esc(f.get("thesis") or ""))
+            pts = [x for x in (f.get("points") or []) if isinstance(x, str)]
+            if pts:
+                out.append("<ul>")
+                for t in pts:
+                    out.append("<li>%s</li>" % esc(t))
+                out.append("</ul>")
+            out.append("</div>")
+        out.append("</div>")
+        out.append("</section>")
+
+    cm = [x for x in (ir.get("chapterMap") or []) if isinstance(x, dict)]
+    if cm:
+        out.append('<section class="ov-block">')
+        out.append("<h2>章节地图</h2>")
+        out.append('<p class="lead">每一章在全书里的位置与作用。</p>')
+        out.append('<div class="chaptermap">')
+        for row in cm:
+            out.append('<div class="cm-row">')
+            out.append('<div class="cm-n">第 %s 章</div>' % esc(str(row.get("n", ""))))
+            out.append('<div class="cm-title">%s</div>' % esc(row.get("title") or ""))
+            out.append('<div class="cm-gist">%s</div>' % esc(row.get("gist") or ""))
+            if row.get("mark"):
+                out.append('<span class="cm-mark">%s</span>' % esc(row["mark"]))
+            out.append("</div>")
+        out.append("</div>")
+        out.append("</section>")
+
+    cg = [x for x in (ir.get("conceptMap") or []) if isinstance(x, dict)]
+    if cg:
+        out.append('<section class="ov-block">')
+        out.append("<h2>概念地图</h2>")
+        out.append('<p class="lead">概念之间的关系，比单点定义更好记。</p>')
+        for g in cg:
+            out.append('<div class="cm-group">')
+            out.append('<span class="cm-rel">%s</span>' % esc(g.get("relation") or ""))
+            out.append('<div class="cm-name">%s</div>' % esc(g.get("name") or ""))
+            items = [x for x in (g.get("items") or []) if isinstance(x, str)]
+            if items:
+                out.append('<div class="cm-items">')
+                for t in items:
+                    out.append('<span class="cm-item">%s</span>' % esc(t))
+                out.append("</div>")
+            out.append("</div>")
+        out.append("</section>")
+
+    dr = [x for x in (ir.get("decisionRules") or []) if isinstance(x, dict)]
+    if dr:
+        out.append('<section class="ov-block">')
+        out.append("<h2>怎么用这本书判断</h2>")
+        out.append('<p class="lead">把书里的判断压成几条可以直接套的规则。</p>')
+        out.append('<div class="rules">')
+        for r in dr:
+            out.append('<div class="rule">')
+            out.append('<div><b>当</b>%s</div>' % esc(r.get("if") or ""))
+            out.append('<div><b>则</b>%s</div>' % esc(r.get("then") or ""))
+            if r.get("else"):
+                out.append('<div><b>否则</b>%s</div>' % esc(r["else"]))
+            out.append("</div>")
+        out.append("</div>")
+        out.append("</section>")
+
+    qs = [q for q in (ir.get("questions") or []) if isinstance(q, dict)]
+    if qs:
+        out.append('<section class="questions">')
+        out.append("<h2>留下来想一想</h2>")
+        out.append('<p class="lead">点开卡片看提示，先自己答一遍再对照。</p>')
+        out.append('<div class="qgrid">')
+        for q in qs:
+            out.append('<button class="qcard" type="button" aria-pressed="false">'
+                       '<span class="q">%s</span><span class="hint">%s</span></button>'
+                       % (esc(q.get("q") or ""), esc(q.get("hint") or "先自己答一遍，再对照书里的论证。")))
+        out.append("</div>")
+        out.append("</section>")
+
+    foot = " · ".join([x for x in (book, meta.get("author")) if x])
+    out.append('<footer class="footer">%s%s · 全书概览 · 主题 %s · 由 bookpage %s 生成，无外部依赖</footer>'
+               % (esc(foot), "，" if foot else "", theme_name, VERSION))
+    out.append("</main>")
+    out.append('<div id="toast" role="status" aria-live="polite"></div>')
+    out.append("</body>")
+    out.append("</html>")
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------- 页面组装
 def render_page(ir, degraded=()):
+    if (ir.get("meta") or {}).get("mode") == "overview":
+        return render_overview(ir)
     meta = ir.get("meta") or {}
     hero = ir.get("hero") or {}
     book = meta.get("book") or ""
@@ -1123,7 +1381,14 @@ def cmd_lint(argv):
     if errs:
         sys.stdout.write("lint: %d 个错误\n" % len(errs))
         return EXIT_LINT
-    sys.stdout.write("lint: OK（%d 个 section）\n" % len(ir.get("sections") or []))
+    mode = (ir.get("meta") or {}).get("mode") or "theme"
+    if mode == "overview":
+        sys.stdout.write("lint: OK（overview：%d 框架 / %d 章 / %d 组概念 / %d 条规则 / %d 个问题）\n"
+                         % (len(ir.get("frameworks") or []), len(ir.get("chapterMap") or []),
+                            len(ir.get("conceptMap") or []), len(ir.get("decisionRules") or []),
+                            len(ir.get("questions") or [])))
+    else:
+        sys.stdout.write("lint: OK（%d 个 section）\n" % len(ir.get("sections") or []))
     return EXIT_OK
 
 
@@ -1163,9 +1428,16 @@ def cmd_build(argv):
     html = render_page(ir, degraded_index)
     with open(dst, "wb") as fh:
         fh.write(html.encode("utf-8"))
-    n = len([s for s in (ir.get("sections") or []) if isinstance(s, dict)])
-    sys.stdout.write("built: %d sections, %d bytes -> %s\n"
-                     % (n, len(html.encode("utf-8")), dst))
+    mode = (ir.get("meta") or {}).get("mode") or "theme"
+    if mode == "overview":
+        desc = "overview（%d 框架 / %d 章 / %d 组概念 / %d 条规则）" % (
+            len(ir.get("frameworks") or []), len(ir.get("chapterMap") or []),
+            len(ir.get("conceptMap") or []), len(ir.get("decisionRules") or []))
+    else:
+        n = len([s for s in (ir.get("sections") or []) if isinstance(s, dict)])
+        desc = "%d sections" % n
+    sys.stdout.write("built: %s, %d bytes -> %s\n"
+                     % (desc, len(html.encode("utf-8")), dst))
     if degraded_index:
         sys.stdout.write("built: %d 个 section 降级为 prose\n" % len(degraded_index))
     return EXIT_OK
