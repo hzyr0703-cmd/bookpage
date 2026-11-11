@@ -92,6 +92,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 已核对四个视角（截图在 `out/` 与 `../../output/2026-11-10/`）：
 
 | 视角 | 结果 |
+| A12 | 论证主线 + 已读标记：`thread` 环数与 IR 一致、主线章号锚点不悬空、`class="mark"` 按钮数 == 章节数、`id="rRead"` 计数器存在、内联 JS 含 localStorage 且无箭头函数、两次构建同哈希 | PASS（5 环 / 9 个按钮 / `7f44eb9f9b…`） |
 | --- | --- |
 | 首屏（因果链面板） | 标题衬线、hero 判断条、7 个 tab 一行排开、四步卡片等宽 |
 | 矩阵面板（tab 2） | 表头「模式 / 启动资金 / 回款方式 / 主要风险」与 4 行数据对齐，首列底色区分 |
@@ -128,7 +129,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 | --- | --- | --- | --- |
 | `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 | 讲透某个主题、某个机制 |
 | `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 | 先看全书骨架再决定读哪 |
-| `reader` | 单页滚动：全书判断卡 + 概念网格 + 左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 | `digest[]` 3–5 条（每条可带 `refs` 章号）、`concepts[]` 2–6 组、`chapters[]` 3–40 章（role/gist/points/quote/text） | **快速理解一本书**：先看全书在说什么，再按章扫读、点开原文核对 |
+| `reader` | 单页滚动：全书判断卡 + 概念网格 + 论证主线 + 左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 + 已读标记 | `digest[]` 3–5 条（每条可带 `refs` 章号）、`concepts[]` 2–6 组、`thread[]` 3–6 环（可选）、`chapters[]` 3–40 章（role/gist/points/quote/text） | **快速理解一本书**：先看全书在说什么，再按章扫读、点开原文核对 |
 
 ## 组件（12 个，含 `prose` 逃生口）
 

@@ -268,6 +268,31 @@ def a11():
     return "split 8 章 / reader 两次同哈希 %s / 无 tab / 等分回退" % h1[:16]
 
 
+def a12():
+    """A12：论证主线（thread）与已读标记两块必须与 IR 对齐，且不破坏确定性。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a12-")
+    rd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo-reader.json")
+    ir = read_json(rd)
+    assert ir.get("thread"), "demo-reader.json 缺 thread 块"
+    o1 = os.path.join(tmp, "r1.html")
+    o2 = os.path.join(tmp, "r2.html")
+    run(["build", rd, o1])
+    run(["build", rd, o2])
+    assert sha256(o1) == sha256(o2), "thread 接入后两次构建哈希不同"
+    html = open(o1, encoding="utf-8").read()
+    assert 'class="thread"' in html, "缺论证主线区块"
+    assert html.count('class="tstep"') == len(ir["thread"]), "主线环数与 IR 不符"
+    assert html.count('class="mark"') == len(ir["chapters"]), "已读按钮数与章节数不符"
+    assert 'id="rRead"' in html, "缺已读计数器"
+    assert "localStorage" in html, "已读状态没有落到 localStorage（刷新即丢）"
+    assert "=>" not in html.split("<script>")[-1], "内联 JS 出现箭头函数"
+    ids = set(re.findall(r'id="ch-(\d+)"', html))
+    dangling = [n for n in re.findall(r'class="tref".{0,400}?href="#ch-(\d+)"', html, re.S) if n not in ids]
+    assert not dangling, "主线引用指向不存在的章：%s" % dangling
+    return "主线 %d 环 / 已读按钮 %d 个 / 同哈希 %s" % (
+        len(ir["thread"]), len(ir["chapters"]), sha256(o1)[:16])
+
+
 def main():
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
@@ -279,6 +304,7 @@ def main():
     check("A9", "书源提取：docx/epub/纯文本 + 缺依赖报错", a9)
     check("A10", "overview 模式：4 区块渲染 + 拒绝路径", a10)
     check("A11", "reader 模式 + split 拆章", a11)
+    check("A12", "论证主线 + 已读标记", a12)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

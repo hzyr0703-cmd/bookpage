@@ -123,6 +123,9 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
   "concepts": [
     {"name": "≤14 字", "gist": "≤60 字：一句话解释", "chapters": [2, 3]}
   ],
+  "thread": [
+    {"step": "≤12 字：这一步的名字", "what": "≤44 字：这一步给下一步提供了什么", "chapters": [2, 3]}
+  ],
   "chapters": [
     {"n": 1, "title": "原书章题（≤24 字）", "role": "≤34 字：这章在全书里的作用",
      "gist": "≤70 字：这章发生什么", "points": ["≤40 字", "…2–4 条要点"],
@@ -137,6 +140,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | --- | --- | --- |
 | `digest` | 3–5 条，每条 10–60 字；可写成 `{t, refs}`，`refs` 1–3 个章号 | 「这本书在说什么」四张卡，先让读者拿到全局判断；带 `refs` 时卡底出现「第 N 章」链接，读者能当场跳去核对证据 |
 | `concepts` | 2–6 组 | 关键概念卡：名字 + 一句话解释 + 出现章号（点卡跳章） |
+| `thread` | 3–6 环，可选，每环 1–2 个章号 | 论证主线：全书"I 所以 II 所以 III"的推进链，横排在概念之后。每环写**这一步给下一步提供了什么**，不是章节列表——`step` 是这一步的名字（起点/换算/越界/代价），`what` 是它给下一步递过去的条件 |
 | `chapters` | 3–40 章，`n` 递增 | 按原书顺序，不跳号；短书就一章一张卡 |
 | `role` | ≤34 字，可选 | 这章在全书里的作用（推进/转折/收束），别写成 gist 的同义句 |
 | `gist` | 10–70 字 | 一句话：这章发生了什么 |
@@ -144,7 +148,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | `quote` | ≤90 字 | 原文金句，尽量照录，不要改写 |
 | `text` | 1–3 段，每段 ≤220 字 | 折叠区里的原文片段，让读者能核对 |
 
-页面形态：hero → `digest` 四张判断卡 → `concepts` 概念网格 → 搜索框 + 滚动进度条 → 左侧 sticky 目录 + 章节卡（章号/标题/gist/要点/金句/「读原文」折叠）。搜索框按标题、gist、要点、原文片段过滤章节，目录同步隐藏。
+页面形态：hero → `digest` 四张判断卡 → `concepts` 概念网格 → `thread` 主线横排（有则出现）→ 搜索框 + 滚动进度条 + 已读计数 → 左侧 sticky 目录 + 章节卡（章号/标题/gist/要点/金句/「读原文」折叠）。每张章节卡右上角有「标为读完」按钮，状态存 `localStorage`（key 含书名），刷新不丢，计数显示"已读 N / M"。搜索框按标题、gist、要点、原文片段过滤章节，目录同步隐藏。
 
 **拆书先行**：先用 `split` 把书按章切开，一章一个 `ch-NN.md`，再逐章写 `gist/points/quote`：
 
@@ -154,7 +158,7 @@ python bookpage.py split <书> -o chapters/     # 输出 ch-01.md … + index.js
 
 `split` 会去掉 Gutenberg 页眉与许可证尾巴、章末 `〔N〕` 注释块、重复印的章题；找不到章节标题时按 6,000 字等分。
 
-速读模式的判断标准：读者滚完这一页，能说出**这本书在讲什么（digest）、关键概念之间怎么连（concepts）、每章推进在哪（role + gist）**，并且想核对哪句时能点开原文。
+速读模式的判断标准：读者滚完这一页，能说出**这本书在讲什么（digest）、关键概念之间怎么连（concepts）、全书论证怎么一步步推进（thread）、每章推进在哪（role + gist）**，并且想核对哪句时能点开原文、想停在哪能标"已读完"。
 
 写作纪律：`role` 说"这章在全书里干什么"，`gist` 说"这章发生了什么"，两者不要互相复述；`digest` 不要写成章节列表，要写成判断，并给每条判断挂 1–3 个章号（`refs`），让读者能跳回去核对。
 
@@ -182,7 +186,7 @@ python bookpage.py chapters <文本文件>               # 中文章节计数（
 python bookpage.py extract <书> [-o out.txt]         # 书源 → 纯文本（docx/epub 零依赖，pdf 需 pypdf）
 python bookpage.py split  <文本文件> -o chapters/    # 按章切开：ch-NN.md + index.json
 python bookpage.py build  ir.json out.html           # 三种模式共用同一个 build（按 meta.mode 分派）
-python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）+ A11（reader/split）
+python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）+ A11（reader/split）+ A12（主线/已读）
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。

@@ -228,7 +228,20 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .chap cite{display:block;margin-top:4px;font-size:12px;color:var(--muted);font-style:normal}
 .chap details{margin-top:10px}
 .chap details summary{cursor:pointer;font-size:13px;color:var(--red)}
-.chap details p{margin:8px 0 0;font-size:14.5px;line-height:1.95;color:var(--ink)}
+.chap details p{margin:8px 0 0;font-size:14.5px;line-height:1.95;color:var(--ink);text-indent:2em;max-width:38em}
+.thread{margin:30px 0 6px}
+.thread h2{font-size:18px;margin:0 0 12px}
+.tchain{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:0}
+.tstep{flex:1 1 190px;min-width:168px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.tstep .tn{font-size:11px;letter-spacing:.1em;color:var(--red)}
+.tstep b{display:block;margin:2px 0 4px;font-size:14.5px}
+.tstep p{margin:0;font-size:13px;line-height:1.8;color:var(--ink-soft)}
+.tstep .tref{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:11.5px}
+.tstep .tref a{color:var(--red);text-decoration:none;border-bottom:1px dotted var(--red)}
+.chap .mark{float:right;font:inherit;font-size:11.5px;padding:2px 9px;margin:-2px 0 6px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface-strong);color:var(--muted);cursor:pointer}
+.chap .mark[aria-pressed="true"]{border-color:var(--red);color:var(--red)}
+.chap.chap-read{background:var(--surface-strong);border-color:var(--red)}
+#rRead{font-size:12.5px;color:var(--muted)}
 .digest{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:26px 0 6px}
 .dg{padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .dg .k{font-size:11.5px;letter-spacing:.1em;color:var(--red);display:block;margin-bottom:6px}
@@ -896,6 +909,26 @@ def _v_reader(errs, ir):
                         if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 99):
                             errs.append(("E103", "%s.chapters[%d]" % (cp, k),
                                          "期望 1–99 的整数，得到 %s" % _typename(v)))
+    th = ir.get("thread")
+    if th is not None:
+        if not isinstance(th, list):
+            errs.append(("E103", "thread", "期望 array，得到 %s" % _typename(th)))
+        elif not (3 <= len(th) <= 6):
+            errs.append(("E104", "thread", "%d 环，期望 3–6" % len(th)))
+        else:
+            for j, st in enumerate(th):
+                sp = "thread[%d]" % j
+                if not isinstance(st, dict):
+                    errs.append(("E103", sp, "期望 object，得到 %s" % _typename(st)))
+                    continue
+                fv_str(errs, sp, st, "step", 2, 12)
+                fv_str(errs, sp, st, "what", 10, 44)
+                ch = fv_list(errs, sp, st, "chapters", 1, 2)
+                if ch:
+                    for k, v in enumerate(ch):
+                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 40):
+                            errs.append(("E103", "%s.chapters[%d]" % (sp, k),
+                                         "期望 1–40 的整数，得到 %s" % _typename(v)))
     chs = ir.get("chapters")
     if not isinstance(chs, list):
         errs.append(("E103", "chapters", "期望 array，得到 %s" % _typename(chs)))
@@ -1206,6 +1239,41 @@ READER_JS = """(function () {
     if (cnt) cnt.textContent = "显示 " + shown + " / " + cards.length + " 章";
   }
   if (box) { box.addEventListener("input", apply); apply(); }
+  var readKey = "bp-read:" + (document.title || "");
+  var readSet = {};
+  try {
+    var raw = window.localStorage.getItem(readKey);
+    if (raw) { JSON.parse(raw).forEach(function (n) { readSet[String(n)] = true; }); }
+  } catch (err) { readSet = {}; }
+  var marks = Array.prototype.slice.call(document.querySelectorAll(".mark"));
+  var rcount = document.getElementById("rRead");
+  function paintMarks() {
+    var done = 0;
+    marks.forEach(function (m) {
+      var n = String(m.getAttribute("data-n"));
+      var on = !!readSet[n];
+      m.setAttribute("aria-pressed", on ? "true" : "false");
+      m.textContent = on ? "已读完" : "标为读完";
+      var art = document.getElementById("ch-" + n);
+      if (art) art.className = on ? "chap chap-read" : "chap";
+      if (on) done++;
+    });
+    if (rcount) rcount.textContent = "已读 " + done + " / " + marks.length;
+  }
+  function saveMarks() {
+    var arr = [];
+    for (var k in readSet) { if (readSet[k]) arr.push(k); }
+    try { window.localStorage.setItem(readKey, JSON.stringify(arr)); } catch (err) {}
+  }
+  marks.forEach(function (m) {
+    m.addEventListener("click", function () {
+      var n = String(m.getAttribute("data-n"));
+      if (readSet[n]) { delete readSet[n]; } else { readSet[n] = true; }
+      saveMarks();
+      paintMarks();
+    });
+  });
+  paintMarks();
 })();"""
 
 def render_reader(ir):
@@ -1272,7 +1340,19 @@ def render_reader(ir):
                        % (esc(first), esc(c.get("name") or ""), esc(c.get("gist") or ""),
                           esc("、".join(nums))))
         out.append("</div></section>")
-    out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="搜章节 / 关键词，例如：财政" aria-label="搜索章节"><span id="rCount"></span></div>')
+    th = [s for s in (ir.get("thread") or []) if isinstance(s, dict)]
+    if th:
+        out.append('<section class="thread" aria-label="全书论证主线">')
+        out.append("<h2>主线怎么推进</h2>")
+        out.append('<ol class="tchain">')
+        for i, s in enumerate(th):
+            links = "".join('<a href="#ch-%s">第 %s 章</a>' % (r, r)
+                            for r in (s.get("chapters") or []) if isinstance(r, int))
+            out.append('<li class="tstep"><span class="tn">%02d</span><b>%s</b><p>%s</p>'
+                       '<span class="tref">%s</span></li>'
+                       % (i + 1, esc(s.get("step") or ""), esc(s.get("what") or ""), links))
+        out.append("</ol></section>")
+    out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="搜章节 / 关键词，例如：财政" aria-label="搜索章节"><span id="rCount"></span><span id="rRead"></span></div>')
     out.append('<div class="rgrid">')
     out.append('<nav class="toc" aria-label="章节目录">')
     for c in chs:
@@ -1289,6 +1369,7 @@ def render_reader(ir):
         parts.extend([t for t in (c.get("text") or []) if isinstance(t, str)])
         search = esc(" ".join(parts))
         out.append('<article class="chap" id="ch-%s" data-search="%s">' % (esc(n), search))
+        out.append('<button class="mark" type="button" data-n="%s" aria-pressed="false">标为读完</button>' % esc(n))
         out.append('<div class="n">%s</div>' % esc(n))
         out.append("<h2>%s</h2>" % esc(c.get("title") or ""))
         if c.get("role"):
