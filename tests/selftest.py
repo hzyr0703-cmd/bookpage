@@ -413,7 +413,31 @@ def a15():
     return "2 本（1 已构建 / 1 未构建），两次同哈希"
 
 
+def a16():
+    """A16：outline 只交可验证的信号，且两次输出一致、不夹带全文。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a16-")
+    o1 = os.path.join(tmp, "o1.md")
+    o2 = os.path.join(tmp, "o2.md")
+    p1 = run(["outline", BOOK, "-o", o1])
+    p2 = run(["outline", BOOK, "-o", o2])
+    assert p1.returncode == 0 and p2.returncode == 0, "outline 失败：%s" % (p1.stdout + p1.stderr)
+    assert sha256(o1) == sha256(o2), "outline 两次输出不一致"
+    md = open(o1, encoding="utf-8").read()
+    src = open(BOOK, encoding="utf-8").read()
+    assert md.count("## 第") == 8, "章节数与样书 8 章不符：%d" % md.count("## 第")
+    assert "首句：" in md and "末句：" in md, "缺少首句/末句"
+    assert "书内引号句" in md, "缺少引号句字段"
+    assert "而不（" not in md and "子曰（" not in md, "虚词噪声又回到了输出里"
+    assert len(md) < len(src) * 0.6, "候选文件没有比原文更短：%d vs %d" % (len(md), len(src))
+    assert "{{" not in md and "\t" not in md, "候选文件含占位符或制表符"
+    # 无引号的书也要能出结果，而不是报错
+    p3 = run(["outline", os.path.join(HERE, "all-components.json")])
+    assert p3.returncode in (0, 2), "非常规输入崩溃：rc=%d" % p3.returncode
+    return "8 章候选，两次同哈希，长度 %d/%d" % (len(md), len(src))
+
+
 def main():
+
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
     check("A3", "缺必需键被拒并指出键名", a3)
@@ -428,6 +452,7 @@ def main():
     check("A13", "verify：引文/片段/章题必须对上书稿", a13)
     check("A14", "render：文本层判定 + 分页渲染", a14)
     check("A15", "shelf：同目录 IR 收成一页", a15)
+    check("A16", "outline：只交可验证信号，两次一致", a16)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

@@ -7,6 +7,7 @@
     python bookpage.py build  <ir.json> <out.html> [--degrade]
     python bookpage.py tokens <file>
     python bookpage.py chapters <file>
+  python bookpage.py outline  <书稿> [-o 文件]
     python bookpage.py extract <book> [-o out.txt]   # docx/epub 走标准库；pdf 需 pypdf
 
 设计原则：同输入 → 字节级相同输出。不读时间、不生成 uuid、不依赖字典顺序、
@@ -2278,7 +2279,136 @@ def cmd_split(argv):
     return EXIT_OK
 
 
-COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters,
+def _cjk_runs(text):
+    """把文本切成连续 CJK 片段（标点、空白、拉丁字母都算断点）。"""
+    return re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}", text)
+
+
+STOP_CHARS = set("之乎者也而其所以於于與不為是有無知曰言乃則故若且焉耳夫矣哉皆亦則若雖然故曰")
+
+
+def _is_function_word(w):
+    """虚词拼接出来的窗口（而不 / 者也 / 以為）不该当成专名候选。"""
+    return all(ch in STOP_CHARS for ch in w)
+
+
+def _terms(text, chapters, limit=40, min_count=3):
+    """高频专名候选：2–4 字窗口计数，长词优先覆盖短词，按 覆盖章数→次数 排序。"""
+    counts = {}
+    where = {}
+    for idx, (title, body) in enumerate(chapters, 1):
+        for run in _cjk_runs(body):
+            for size in (2, 3, 4):
+                for i in range(len(run) - size + 1):
+                    w = run[i:i + size]
+                    counts[w] = counts.get(w, 0) + 1
+                    where.setdefault(w, set()).add(idx)
+    cand = [w for w, c in counts.items() if c >= min_count and not _is_function_word(w)]
+    cand.sort(key=lambda w: (-counts[w], -len(w), w))
+    keep = []
+    for w in cand:
+        if any(w != k and w in k and counts[k] >= counts[w] * 0.9 for k in keep):
+            continue
+        keep.append(w)
+    keep.sort(key=lambda w: (-len(where[w]), -counts[w], w))
+    return [(w, counts[w], sorted(where[w])) for w in keep[:limit]]
+
+
+def _sentence_split(body):
+    return [x.strip() for x in re.split(r"[。！？；\n]+", body) if x.strip()]
+
+
+QUOTE_MARK = re.compile(r"[「『][^」』]{6,90}[」』]|“[^”]{6,90}”")
+
+
+def _candidates(body, terms, per=4):
+    """章节候选引文：带引号的句子 > 含高频专名的短句 > 章首句。"""
+    out = []
+    for m in QUOTE_MARK.findall(body):
+        out.append(("引号句", m))
+    for sent in _sentence_split(body):
+        if not (14 <= len(sent) <= 90):
+            continue
+        if [t for t, _, _ in terms if t in sent]:
+            out.append(("含专名", sent))
+    if body.strip():
+        out.append(("首句", _sentence_split(body)[0]))
+    seen = []
+    for kind, text in out:
+        if text in [t for _, t in seen]:
+            continue
+        seen.append((kind, text))
+        if len(seen) >= per:
+            break
+    return seen
+
+
+def outline_book(text, chapters, per=4):
+    """只输出可被机器验证的信号：章结构、首/末句、书里自带引号的句子。
+
+    刻意不做分词与专名提取 —— 试过两条都失败（见 README「outline 没做什么」）：
+    2–4 字窗口在文言里全是「而不 / 者也」，对话标记正则在白话里抓出「誰知」这类副词。
+    """
+    lines = ["# 起草候选（给写 IR 用，不含全文）", "",
+             "共 %d 章 / %d 字。" % (len(chapters), len(text)), ""]
+    for idx, (title, body) in enumerate(chapters, 1):
+        body = "\n".join(x for x in body.split("\n")
+                         if x.strip() and not x.strip().startswith("#"))
+        paras = [p for p in body.split("\n") if p.strip()]
+        lines.append("## 第 %d 章 %s（%d 字 / %d 段）" % (idx, title, len(body), len(paras)))
+        sents = [x for x in _sentence_split(body) if len(x) >= 8]
+        if sents:
+            lines.append("- 首句：%s" % sents[0])
+            if len(sents) > 1:
+                lines.append("- 末句：%s" % sents[-1])
+        quotes = QUOTE_MARK.findall(body)[:per]
+        for q in quotes:
+            lines.append("- 书内引号句：%s" % q)
+        if not quotes:
+            lines.append("- 书内引号句：无（这章没有引号包起来的原话）")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_outline(argv):
+    """outline <书稿> [-o 文件名] [--top N] [--per N]"""
+    out = None
+    per = 4
+    src = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "-o":
+            i += 1
+            out = argv[i]
+        elif a == "--top":
+            i += 1
+            argv[i] = argv[i]  # 兼容旧调用：词频统计已移除，参数被忽略
+        elif a == "--per":
+            i += 1
+            per = int(argv[i])
+        elif a in ("--help", "-h"):
+            print("用法：outline <书稿> [-o 文件名] [--per 4]", file=sys.stderr)
+            return EXIT_USAGE
+        elif not a.startswith("-") and src is None:
+            src = a
+        i += 1
+    if not src:
+        print("ERROR: outline 需要一份书稿。用法：outline <书稿> [-o 文件名]", file=sys.stderr)
+        return EXIT_USAGE
+    text = strip_boilerplate(read_text(src))
+    chapters, method = split_chapters(text, max_chars=6000)
+    md = outline_book(text, chapters, per=per)
+    if out:
+        with open(out, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(md)
+        print("outline: %d 章 / 切分方式 %s -> %s" % (len(chapters), method, out))
+    else:
+        sys.stdout.write(md)
+    return EXIT_OK
+
+
+COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "outline": cmd_outline,
             "extract": cmd_extract, "split": cmd_split, "verify": cmd_verify, "render": cmd_render,
             "shelf": cmd_shelf}
 

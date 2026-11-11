@@ -54,6 +54,9 @@ python bookpage.py chapters tests/sample-book.md
 # 书源 → 纯文本：docx/epub 零依赖；pdf 需 pypdf；mobi/azw3 需 calibre
 python bookpage.py extract 某本书.epub -o full_text.txt
 
+# 起草候选：每章首句/末句/书内引号句（只给能过 verify 的句子）
+python bookpage.py outline 书.txt -o 候选.md
+
 # 引文核对：引文/原文片段/章题是否真出自书稿（E301/E302/E303）+ 覆盖率
 python bookpage.py verify demo-reader.json --source tmp/bookpage-e2e/kb/full_text.txt
 
@@ -72,7 +75,7 @@ python bookpage.py shelf 交付目录/ -o 交付目录/index.html
 python tests/selftest.py
 ```
 
-十四条断言全部可复跑，不依赖浏览器与 pip（A1–A7、A9–A15 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
+十五条断言全部可复跑，不依赖浏览器与 pip（A1–A7、A9–A16 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
 
 | 编号 | 断言 | 现状 |
 | --- | --- | --- |
@@ -90,6 +93,17 @@ python tests/selftest.py
 | A13 | verify：引文、原文片段、章题三类错误都能定位到具体字段（E301/E302/E303），正常 IR 必须通过 | PASS（3 章样本，三类错误各自命中） |
 | A14 | render：有文本层的 PDF 判「文本层：有」并按页区间渲 PNG；没装 pymupdf 时退化为校验缺依赖报错 rc=2 | PASS（3 页样本 → 只渲 1-2 页） |
 | A15 | shelf：同目录 2 本（1 已构建 / 1 未构建），链接可点、缺构建标注、两次输出同哈希、无占位符与外部引用 | PASS（两次同哈希） |
+
+| A16 | outline：8 章候选、两次同哈希、长度短于原文、无虚词噪声、无占位符 | PASS（1,233 / 4,596 字节） |
+
+## outline 没做什么（两次失败记录）
+
+最初想让 `outline` 顺手给出「跨章高频专名」，帮选题更快，两种做法都没站住：
+
+1. **2–4 字窗口计数**：文言里最高频的窗口是「而不（80 次）/ 不知（44 次）/ 以為（39 次）」，全是虚词；加了虚词字符表过滤后仍留下「子曰 / 夫子 / 人之 / 而後」这类语法组合。白文本上同样跑偏（阿Q 前十二名是「沒有 / 一個 / 知道 / 自己」，只有一个「未莊」是真专名）。
+2. **对话标记正则**（`某某曰/说/道/问` 抓说话人）：文言抓出「敢 / 名之 / 謂之」这类误命中，白话抓出「誰知 / 我不知」，真名（庄子、阿Q、赵太爷）反而漏掉。
+
+结论：没有分词就无法可靠抽专名，与其给出一份看着像分析、实则要人工逐条否掉的清单，不如只给**能被校验的部分**——章结构、首句、末句、书里自带引号的句子。这三样都能被 `verify` 认账，也不骗人。若以后要回到专名提取，需要引入词性标注或专名词典，属于另一个量级的工作。
 
 ## 视觉验证
 
