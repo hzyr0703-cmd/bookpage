@@ -161,7 +161,7 @@ def a6():
             assert 'id="panel-%s"' % sec["id"] in html, "%s 缺 panel-%s" % (name, sec["id"])
             assert 'aria-controls="panel-%s"' % sec["id"] in html, "%s tab 未关联 panel" % name
         assert "http://" not in html and "https://" not in html, "%s 含外部引用，离线不可开" % name
-    return "demo 7 节 / all 4 节，tab↔panel 对齐，无占位符与外部引用"
+    return "demo 7 节 / all 5 节，tab↔panel 对齐，无占位符与外部引用"
 
 
 # ---------------------------------------------------------------- A7 零依赖

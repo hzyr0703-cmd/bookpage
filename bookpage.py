@@ -156,6 +156,11 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .sel-out{padding:18px 20px;border-radius:12px;border:1px dashed var(--line);min-height:150px;background:var(--surface-strong);font-size:14.5px;color:var(--ink-soft)}
 .quote{margin:0;padding:26px 28px;border-left:4px solid var(--gold);background:var(--surface);border-radius:0 12px 12px 0;font-family:var(--font-display);font-size:19px;line-height:1.7;color:var(--ink)}
 .quote cite{display:block;margin-top:12px;font-family:var(--font-body);font-size:13px;font-style:normal;color:var(--ink-soft-2)}
+.figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.fig{padding:20px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.fig b{display:block;font-family:var(--font-display);font-size:30px;line-height:1.15;color:var(--ink)}
+.fig span{display:block;margin-top:6px;font-size:13px;color:var(--ink-soft)}
+.fig em{display:block;margin-top:8px;font-size:12px;font-style:normal;color:var(--ink-soft-2)}
 .story{position:relative}
 .story .label{font-size:11px;letter-spacing:.12em;color:var(--red)}
 .prose{font-size:15px;color:var(--ink-soft)}
@@ -474,6 +479,18 @@ def _v_quote_card(errs, base, data):
     fv_str(errs, base, data, "source", 0, 40, required=False)
 
 
+def _v_key_figures(errs, base, data):
+    items = fv_list(errs, base, data, "items", 2, 6)
+    for i, it in enumerate(items or []):
+        p = "%s.items[%d]" % (base, i)
+        if not isinstance(it, dict):
+            errs.append(("E103", p, "期望 object，得到 %s" % _typename(it)))
+            continue
+        fv_str(errs, p, it, "value", 1, 10)
+        fv_str(errs, p, it, "label", 1, 14)
+        fv_str(errs, p, it, "note", 0, 60, required=False)
+
+
 def _v_prose(errs, base, data):
     paras = fv_list(errs, base, data, "paragraphs", 1, 5)
     for i, p in enumerate(paras or []):
@@ -602,6 +619,19 @@ def _r_before_after(sec, ctx):
     return '<div class="ba">%s%s</div>' % (col("left"), col("right", " right"))
 
 
+def _r_key_figures(sec, ctx):
+    data = sec.get("data") or {}
+    cards = "".join(
+        '<div class="fig"><b>%s</b><span>%s</span>%s</div>' % (
+            esc(it.get("value")),
+            esc(it.get("label")),
+            ("<em>%s</em>" % esc(it.get("note"))) if it.get("note") else "",
+        )
+        for it in (data.get("items") or [])
+    )
+    return '<div class="figures">%s</div>' % cards
+
+
 def _r_accordion(sec, ctx):
     data = sec.get("data") or {}
     items = data.get("items") or []
@@ -632,6 +662,7 @@ RENDERERS = {
     "story_card": _r_story_card,
     "before_after": _r_before_after,
     "accordion": _r_accordion,
+    "key_figures": _r_key_figures,
     "quote_card": _r_quote_card,
     "prose": _r_prose,
 }
@@ -646,6 +677,7 @@ VALIDATORS = {
     "story_card": _v_story_card,
     "before_after": _v_before_after,
     "accordion": _v_accordion,
+    "key_figures": _v_key_figures,
     "quote_card": _v_quote_card,
     "prose": _v_prose,
 }

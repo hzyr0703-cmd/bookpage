@@ -20,15 +20,14 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-# 有意改版后跑 --update 重钉这两个常量
-DEMO_SHA = "65767738fb8b1f5318e6de162999eda80369ad581a55c89a1c631449f88881ee"
-ALL_SHA = None  # 首次运行时自动补钉
+# 哈希全部从 tests/golden.sha 读取；首次或有意改版后跑 --update 重钉
+DEMO_SHA = None
 
 # 每个组件在产物 HTML 里的独有标记；用来证明"11 个组件都真出现了"
 MARKERS = {
     "s1": "chain-step", "s2": "matrix", "s3": "timeline", "s4": "fold",
     "s5": "ba-col", "s6": "selector", "s7": "quote",
-    "p1": "prose", "d1": "dt-node", "t1": "story", "q1": "qcard",
+    "p1": "prose", "d1": "dt-node", "t1": "story", "f1": "figures", "q1": "qcard",
 }
 
 SHA_FILE = os.path.join(HERE, "golden.sha")
@@ -55,7 +54,9 @@ def sha(data: bytes) -> str:
 
 
 def read_pins() -> dict:
-    pins = {"demo": DEMO_SHA}
+    pins = {}
+    if DEMO_SHA:
+        pins["demo"] = DEMO_SHA
     if os.path.exists(SHA_FILE):
         for line in open(SHA_FILE, encoding="utf-8"):
             line = line.strip()

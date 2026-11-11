@@ -60,7 +60,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 - `sections` 4–7 个；`questions` 2–6 个
 - 全部字符串走同一套转义，**不要在字段里写 HTML**（写 `<b>` 会被原样转义显示）
 
-## 组件契约（`signature` 白名单，共 11 个）
+## 组件契约（`signature` 白名单，共 12 个）
 
 | signature | data 必需键 | 数量 | 字数上限 | 交互 |
 | --- | --- | --- | --- | --- |
@@ -74,6 +74,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | `before_after` | `left/right{title,points[]}` | 每侧 2–5 | title 10 / point 40 | 双栏对照 |
 | `accordion` | `items[{title,body}]` | 2–7 | title 16 / body 200 | 原生折叠（无 JS 也能用） |
 | `quote_card` | `text`、`speaker?`、`source?` | 1 张 | text 120 / speaker 20 / source 40 | 静态引语 |
+| `key_figures` | `items[{value,label,note?}]` | 2–6 | value 10 / label 14 / note 60 | 数字卡网格，静态 |
 | `prose` | `paragraphs[]` | 1–5 | 每段 240 | 无交互，逃生口 |
 
 `matrix` 的 `cells` 数量必须**恰好等于** `cols` 数量；`decision_tree` 的每个选项必须且只能有 `result` 或 `next` 之一。
@@ -83,7 +84,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | 码 | 含义 | 怎么修 |
 | --- | --- | --- |
 | `E100` | schema 字段缺失或不是 `bookpage/1` | 补 `"schema": "bookpage/1"` |
-| `E101` | 未知 `signature` | 从上面 11 个里选，别自造 |
+| `E101` | 未知 `signature` | 从上面 12 个里选，别自造 |
 | `E102` | 必需键缺失 | 按路径补键；`result/next` 二选一的错误也报这个 |
 | `E103` | 类型不对（该 list 给了 string 等） | 改成对应容器类型 |
 | `E104` | 超出上限（字数/数量/深度） | 压缩文本或拆节 |

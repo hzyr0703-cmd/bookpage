@@ -55,14 +55,14 @@ python tests/selftest.py
 
 | 编号 | 断言 | 现状 |
 | --- | --- | --- |
-| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`65767738fb8b1f53…`，24,872 bytes） |
+| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`be31060166843639…`，25,334 bytes） |
 | A2 | 未知 signature → 退出码 1，报 E101 且指出 `sections[i].signature` | PASS |
 | A3 | 缺必需键 → 退出码 1，报 E102 且指出键名 | PASS |
 | A4 | 中文样书章节计数 = 8 | PASS 8/8 |
 | A5 | 中文 token 估算 ≥ 上游算法的 8 倍 | PASS：3,379 vs 202（约 17 倍） |
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
-| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（24,872 bytes） |
-| A8 | 金标准回归：两份样例 IR 产物哈希钉死 + 11 个组件标记齐备 | PASS（demo `65767738…` / all `6d435f03…`，11/11） |
+| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（25,334 bytes） |
+| A8 | 金标准回归：两份样例 IR 产物哈希钉死 + 12 个组件标记齐备 | PASS（demo `be31060166…` / all `ad7ca851e5…`，12/12） |
 
 ## 视觉验证
 
@@ -117,6 +117,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 | `before_after` | `left`/`right` 各 {title ≤10, points 2–5} | 双栏对照 |
 | `accordion` | `items`（2–7：title ≤16、body ≤200） | 原生 `details` 展开 |
 | `quote_card` | `text` ≤120、可选 `speaker` ≤20 / `source` ≤40 | 屏读 |
+| `key_figures` | `items` 2–6 个，每个 `value` ≤10 / `label` ≤14 / 可选 `note` ≤60 | 数字卡网格 |
 | `prose` | `paragraphs`（1–5） | 逃生口，也是降级目标 |
 
 主题三套：`paper`（暖纸）、`minimal`（极简）、`dark`（夜读）。每套只覆盖 21 个 CSS 变量

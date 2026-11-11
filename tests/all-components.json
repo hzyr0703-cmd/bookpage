@@ -64,6 +64,20 @@
       }
     },
     {
+      "id": "f1",
+      "label": "关键数字",
+      "signature": "key_figures",
+      "lead": "非虚构书里的数字，单独摆出来比揉进段落里更有冲击力。",
+      "data": {
+        "items": [
+          {"value": "46,497", "label": "字符数", "note": "《阿Q正传》全文，UTF-8"},
+          {"value": "9", "label": "章", "note": "第一章序到第九章大团圆"},
+          {"value": "0", "label": "上游识别到的章节", "note": "中文标题整段漏检"},
+          {"value": "4,809", "label": "token 估算", "note": "bookpage 中文感知算法"}
+        ]
+      }
+    },
+    {
       "id": "q1",
       "label": "想一想",
       "signature": "questions",
