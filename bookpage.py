@@ -233,6 +233,9 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .dg{padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .dg .k{font-size:11.5px;letter-spacing:.1em;color:var(--red);display:block;margin-bottom:6px}
 .dg p{margin:0;font-size:14.5px;line-height:1.85;color:var(--ink)}
+.dg .ref{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:12px}
+.dg .ref a{color:var(--red);text-decoration:none;border-bottom:1px dotted var(--red)}
+.chap .gist,.chap ul,.chap details p{max-width:38em}
 .concepts{margin:20px 0 4px}
 .concepts h2{font-family:var(--font-display);font-size:19px;margin:0 0 8px}
 .cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
@@ -854,10 +857,25 @@ def _v_reader(errs, ir):
             errs.append(("E104", "digest", "%d 条，期望 3–5" % len(dg)))
         else:
             for j, t in enumerate(dg):
-                if not isinstance(t, str):
-                    errs.append(("E103", "digest[%d]" % j, "期望 string，得到 %s" % _typename(t)))
-                elif not (10 <= len(t) <= 60):
-                    errs.append(("E104", "digest[%d]" % j, "%d 字，期望 10–60" % len(t)))
+                txt = t if isinstance(t, str) else (t.get("t") if isinstance(t, dict) else None)
+                if not isinstance(txt, str):
+                    errs.append(("E103", "digest[%d]" % j,
+                                 "期望 string 或 {t, refs}，得到 %s" % _typename(t)))
+                    continue
+                if not (10 <= len(txt) <= 60):
+                    errs.append(("E104", "digest[%d]" % j, "%d 字，期望 10–60" % len(txt)))
+                if isinstance(t, dict):
+                    refs = t.get("refs")
+                    if refs is not None:
+                        if not isinstance(refs, list):
+                            errs.append(("E103", "digest[%d].refs" % j,
+                                         "期望 array，得到 %s" % _typename(refs)))
+                        elif not (1 <= len(refs) <= 3):
+                            errs.append(("E104", "digest[%d].refs" % j,
+                                         "%d 个，期望 1–3" % len(refs)))
+                        elif not all(isinstance(x, int) and 1 <= x <= 40 for x in refs):
+                            errs.append(("E104", "digest[%d].refs" % j,
+                                         "章号须为 1–40 的整数"))
     cs = ir.get("concepts")
     if cs is not None:
         if not isinstance(cs, list):
@@ -1228,11 +1246,19 @@ def render_reader(ir):
     if hero.get("thesis"):
         out.append('<div class="thesis">%s</div>' % esc(hero["thesis"]))
     out.append("</header>")
-    dg = [t for t in (ir.get("digest") or []) if isinstance(t, str)]
-    if dg:
+    dg_items = []
+    for t in (ir.get("digest") or []):
+        if isinstance(t, str):
+            dg_items.append((t, []))
+        elif isinstance(t, dict) and isinstance(t.get("t"), str):
+            dg_items.append((t["t"], [x for x in (t.get("refs") or []) if isinstance(x, int)]))
+    if dg_items:
         out.append('<section class="digest" aria-label="这本书在说什么">')
-        for i, t in enumerate(dg):
-            out.append('<div class="dg"><span class="k">%02d</span><p>%s</p></div>' % (i + 1, esc(t)))
+        for i, (t, refs) in enumerate(dg_items):
+            links = "".join('<a href="#ch-%s">第 %s 章</a>' % (r, r) for r in refs)
+            ref_html = ('<span class="ref">%s</span>' % links) if links else ""
+            out.append('<div class="dg"><span class="k">%02d</span><p>%s</p>%s</div>'
+                       % (i + 1, esc(t), ref_html))
         out.append("</section>")
     cs = [c for c in (ir.get("concepts") or []) if isinstance(c, dict)]
     if cs:
