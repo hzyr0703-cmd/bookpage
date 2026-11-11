@@ -1352,7 +1352,10 @@ def render_reader(ir):
                        '<span class="tref">%s</span></li>'
                        % (i + 1, esc(s.get("step") or ""), esc(s.get("what") or ""), links))
         out.append("</ol></section>")
-    out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="搜章节 / 关键词，例如：财政" aria-label="搜索章节"><span id="rCount"></span><span id="rRead"></span></div>')
+    hint = "搜章节 / 关键词"
+    if ir.get("concepts"):
+        hint = "搜章节 / 关键词，例如：" + str(ir["concepts"][0].get("name") or "")
+    out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="%s" aria-label="搜索章节"><span id="rCount"></span><span id="rRead"></span></div>' % esc(hint))
     out.append('<div class="rgrid">')
     out.append('<nav class="toc" aria-label="章节目录">')
     for c in chs:

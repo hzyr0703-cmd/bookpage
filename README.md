@@ -74,7 +74,7 @@ python tests/selftest.py
 | A5 | 中文 token 估算 ≥ 上游算法的 8 倍 | PASS：3,379 vs 202（约 17 倍） |
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
 | A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（27,221 bytes） |
-| A8 | 金标准回归：四份样例 IR（demo / all / overview / reader）哈希钉死 + 12 个组件标记齐备 | PASS（demo `c5ef82829e…` / all `038f24f803…` / overview `202eba9875…` / reader `ffdab48092…`，12/12） |
+| A8 | 金标准回归：五份样例 IR（demo / all / overview / reader / 庄子 reader）哈希钉死 + 12 个组件标记齐备 | PASS（demo `b318941435…` / all `e1dfcc06e2…` / overview `db273747f0…` / reader `6c34affdea…` / zhuangzi `7ce9155c25…`，12/12） |
 | A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖或解析失败时 rc=2 并说明原因；本机同时有 pypdf+reportlab 时再跑一份真 PDF | PASS（公版书 epub 46,157 字符 / 9 章；真 PDF 3 章） |
 | A10 | overview 模式：四区块渲染、两次构建同哈希、无 tab/panel、无外部引用；空区块报 E102、误写 sections 报 E100、非法 relation 被拒 | PASS（`29e816814f31e5a2…`，三条拒绝路径） |
 | A11 | reader 模式 + split：样书切出 8 章（文件数与 index 一致、每文件有标题行)、reader 两次构建同哈希、无 tab、有目录与搜索框、digest 卡与概念卡数量与 IR 一致、digest 的章号引用数与 IR 一致且不指向空锚点、无外部引用；无标题书回退到等分切 | PASS（8 章 / `35f69bba96…` / 等分回退） |

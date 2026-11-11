@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A8 金标准回归：四份样例 IR 的产物哈希锁死 + 12 个组件标记齐备。
+"""A8 金标准回归：五份样例 IR 的产物哈希锁死 + 12 个组件标记齐备。
 
 A1 只证明"同一份 IR 两次构建相同"，但没锁住"改渲染器后产物是否被无意改动"。
 本文件把 demo / all-components / demo-overview / demo-reader 四份 IR 的 sha256 钉死；
@@ -77,6 +77,7 @@ def main() -> int:
         ("all", os.path.join("tests", "all-components.json"), ()),
         ("overview", "demo-overview.json", ("frameworks", "cm-row", "rule")),
         ("reader", "demo-reader.json", ("class=\"toc\"", "class=\"chap\"", "rFilter")),
+        ("zhuangzi", "demo-reader-zhuangzi.json", ("class=\"tstep\"", "逍遥")),
     )
     for key, ir, need in products:
         html = build(ir, os.path.join(tmp, key + ".html"))
