@@ -53,6 +53,15 @@ python bookpage.py chapters tests/sample-book.md
 
 # 书源 → 纯文本：docx/epub 零依赖；pdf 需 pypdf；mobi/azw3 需 calibre
 python bookpage.py extract 某本书.epub -o full_text.txt
+
+# 引文核对：引文/原文片段/章题是否真出自书稿（E301/E302/E303）+ 覆盖率
+python bookpage.py verify demo-reader.json --source tmp/bookpage-e2e/kb/full_text.txt
+
+# 扫描版 PDF 摸底：抽样判文本层，按页渲 PNG，并报「书版页码 = 物理页 - 前置页数」
+python bookpage.py render 书.pdf -o pages/ --pages 1-4 --dpi 180
+
+# 书架：把一个目录里的 IR 收成一页，已构建的给链接，没构建的标「未构建」
+python bookpage.py shelf 交付目录/ -o 交付目录/index.html
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。
@@ -63,21 +72,24 @@ python bookpage.py extract 某本书.epub -o full_text.txt
 python tests/selftest.py
 ```
 
-九条断言全部可复跑，不依赖浏览器与 pip（A1–A7、A9 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
+十四条断言全部可复跑，不依赖浏览器与 pip（A1–A7、A9–A15 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
 
 | 编号 | 断言 | 现状 |
 | --- | --- | --- |
-| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`42a8d1400d5bb007…`，27,221 bytes） |
+| A1 | 同一 IR 两次构建 sha256 相同 | PASS（`b318941435c43bc5…`，31,548 bytes） |
 | A2 | 未知 signature → 退出码 1，报 E101 且指出 `sections[i].signature` | PASS |
 | A3 | 缺必需键 → 退出码 1，报 E102 且指出键名 | PASS |
 | A4 | 中文样书章节计数 = 8 | PASS 8/8 |
 | A5 | 中文 token 估算 ≥ 上游算法的 8 倍 | PASS：3,379 vs 202（约 17 倍） |
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
-| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（27,221 bytes） |
-| A8 | 金标准回归：五份样例 IR（demo / all / overview / reader / 庄子 reader）哈希钉死 + 12 个组件标记齐备 | PASS（demo `b318941435…` / all `e1dfcc06e2…` / overview `db273747f0…` / reader `6c34affdea…` / zhuangzi `7ce9155c25…`，12/12） |
+| A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（31,548 bytes） |
+| A8 | 金标准回归：五份样例 IR（demo / all / overview / reader / 庄子 reader）哈希钉死 + 12 个组件标记齐备 | PASS（demo `b318941435…` / all `e1dfcc06e2…` / overview `db273747f0…` / reader `691841ff92…` / zhuangzi `7ce9155c25…`，12/12） |
 | A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖或解析失败时 rc=2 并说明原因；本机同时有 pypdf+reportlab 时再跑一份真 PDF | PASS（公版书 epub 46,157 字符 / 9 章；真 PDF 3 章） |
 | A10 | overview 模式：四区块渲染、两次构建同哈希、无 tab/panel、无外部引用；空区块报 E102、误写 sections 报 E100、非法 relation 被拒 | PASS（`29e816814f31e5a2…`，三条拒绝路径） |
 | A11 | reader 模式 + split：样书切出 8 章（文件数与 index 一致、每文件有标题行)、reader 两次构建同哈希、无 tab、有目录与搜索框、digest 卡与概念卡数量与 IR 一致、digest 的章号引用数与 IR 一致且不指向空锚点、无外部引用；无标题书回退到等分切 | PASS（8 章 / `35f69bba96…` / 等分回退） |
+| A13 | verify：引文、原文片段、章题三类错误都能定位到具体字段（E301/E302/E303），正常 IR 必须通过 | PASS（3 章样本，三类错误各自命中） |
+| A14 | render：有文本层的 PDF 判「文本层：有」并按页区间渲 PNG；没装 pymupdf 时退化为校验缺依赖报错 rc=2 | PASS（3 页样本 → 只渲 1-2 页） |
+| A15 | shelf：同目录 2 本（1 已构建 / 1 未构建），链接可点、缺构建标注、两次输出同哈希、无占位符与外部引用 | PASS（两次同哈希） |
 
 ## 视觉验证
 

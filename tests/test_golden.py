@@ -42,6 +42,7 @@ def build(ir: str, out: str) -> bytes:
     proc = subprocess.run(
         [sys.executable, "-I", os.path.join(ROOT, "bookpage.py"), "build", ir, out],
         cwd=ROOT, env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     if proc.returncode != 0:
         raise SystemExit("build 失败 [%s] rc=%d\n%s%s" % (ir, proc.returncode, proc.stdout, proc.stderr))

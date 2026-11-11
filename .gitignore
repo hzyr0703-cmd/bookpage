@@ -5,3 +5,4 @@ __pycache__/
 .mut/
 smoke.html
 tests/.tmp-extract/
+tmp-bookpage.py.bak

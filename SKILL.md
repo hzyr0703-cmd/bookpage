@@ -24,7 +24,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 ## 流程
 
 ```
-① 拆书 → ② 只读当前章 → ③ 写 IR.json → ④ lint → ⑤ 按错误码改 → ⑥ build → ⑦ 自检
+① 拆书 → ② 只读当前章 → ③ 写 IR.json → ④ lint → ⑤ 按错误码改 → ⑥ build → ⑦ verify
 ```
 
 1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`，再 `python bookpage.py split full_text.txt -o chapters/` 按章切开（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
@@ -33,7 +33,17 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
 5. **修**：只按错误码改对应字段，不重写整份 IR。
 6. **build**：`python bookpage.py build ir.json out.html`。
-7. **自检**：产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
+7. **verify**：`python bookpage.py verify ir.json --source 书稿.txt` —— 逐条确认引文、原文片段、章题真的出自书稿（`E301` 引文 / `E302` 片段 / `E303` 章题），并打印覆盖率；产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
+
+## 三条收尾命令
+
+| 命令 | 干什么 | 什么时候用 |
+| --- | --- | --- |
+| `verify <ir.json> --source <书稿.txt>` | 引文/原文片段/章题是否真在书稿里 + 覆盖率 | **每本书都要跑**。它抓的是"凭记忆编原文"这类最难自查的错误；扫描书没有文本源，只能跳过并在这里说明 |
+| `render <file.pdf> [-o dir] [--dpi 180] [--pages 1-8]` | 抽样 5 页判文本层，把指定页渲成 PNG，并打印「书版页码 = 物理页 - 前置页数」 | 拿到 PDF 先跑一次：有文本层走 `extract`，没有就走"渲染 + 看图转录" |
+| `shelf [dir ...] [-o index.html]` | 把一个目录里的 IR 收成一页书架，已构建的给链接，没构建的标「未构建」 | 交付多本书时，给用户一个入口，而不是让他自己找文件 |
+
+`verify` 的覆盖率是个粗指标（去空白后逐段匹配到的原文字数占比），10% 上下属正常——速读页本来只摘关键句，不是在复刻全文。
 
 ## IR 骨架
 
@@ -127,7 +137,8 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
     {"step": "≤12 字：这一步的名字", "what": "≤44 字：这一步给下一步提供了什么", "chapters": [2, 3]}
   ],
   "chapters": [
-    {"n": 1, "title": "原书章题（≤24 字）", "role": "≤34 字：这章在全书里的作用",
+    {"n": 1, "title": "原书章题（≤24 字）", "srcTitle": "可选：split 返回的原样标题（≤40 字），写了就用它比对原文",
+     "role": "≤34 字：这章在全书里的作用",
      "gist": "≤70 字：这章发生什么", "points": ["≤40 字", "…2–4 条要点"],
      "quote": "≤90 字原文", "quote_from": "≤12 字（第几章）",
      "text": ["原书段落，1–3 段，每段 ≤220 字"]}

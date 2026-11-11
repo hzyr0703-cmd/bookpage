@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -293,6 +294,125 @@ def a12():
         len(ir["thread"]), len(ir["chapters"]), sha256(o1)[:16])
 
 
+def a13():
+    """A13：verify 必须证明引文与原文片段真的来自书稿，且错误指到具体字段。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a13-")
+    src = os.path.join(tmp, "book.txt")
+    lines = [
+        "第一章 起點",
+        "　　阿甲出生在河邊的小鎮，家裡只有一間瓦房。他每天走三里路去學堂，路上會經過一座石橋。",
+        "第二章 轉折",
+        "　　那年夏天河漲水，石橋被沖斷，學堂停課半年。阿甲開始在橋邊幫人擺渡，一次能載四人。",
+        "第三章 結局",
+        "　　十年後他攢錢修了橋，橋上刻著他的名字。來往的人仍舊叫他擺渡的，沒人叫他修橋的。",
+    ]
+    with open(src, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n\n".join(lines) + "\n")
+    ir = {
+        "schema": "bookpage/1",
+        "meta": {"book": "驗證樣本", "author": "測試", "mode": "reader", "theme": "paper"},
+        "hero": {"eyebrow": "測試", "title": "三個章節", "lede": "用來證明 verify 真的在比對原文。",
+                 "thesis": "引文必須落在書稿裡。"},
+        "digest": [{"t": "一條足以讓 gate 通過的判斷句，長度剛好合規。", "refs": [1]}],
+        "concepts": [{"name": "起點", "gist": "故事從一個小鎮的一間瓦房開始，主角叫阿甲。", "chapters": [1]},
+                     {"name": "轉折", "gist": "河水沖斷石橋，學堂停課，主角改去擺渡。", "chapters": [2]}],
+        "chapters": [
+            {"n": 1, "title": "第一章 起點", "gist": "阿甲出生在河邊小鎮，每天走路去學堂。",
+             "points": ["家裡只有一間瓦房", "上學要經過一座石橋"],
+             "quote": "阿甲出生在河邊的小鎮，家裡只有一間瓦房。",
+             "text": ["他每天走三里路去學堂，路上會經過一座石橋。"]},
+            {"n": 2, "title": "第二章 轉折", "gist": "河水漲起來，石橋被沖斷，學堂停課半年。",
+             "points": ["石橋被沖斷", "阿甲改去橋邊擺渡"],
+             "quote": "那年夏天河漲水，石橋被沖斷，學堂停課半年。",
+             "text": ["阿甲開始在橋邊幫人擺渡，一次能載四人。"]},
+            {"n": 3, "title": "第三章 結局", "gist": "十年後阿甲修好了橋，橋上刻著他的名字。",
+             "points": ["攢錢修了橋", "旁人仍舊叫他擺渡的"],
+             "quote": "十年後他攢錢修了橋，橋上刻著他的名字。",
+             "text": ["來往的人仍舊叫他擺渡的，沒人叫他修橋的。"]},
+        ],
+        "questions": [{"q": "這三段裡，哪一段最能說明「名字與稱呼」的錯位？",
+                       "hint": "看第三章第二句。"},
+                     {"q": "如果只能留一個細節，你留哪個？", "hint": "橋上刻著名字那句。"}],
+    }
+    good = write_json_tmp(tmp, "good.json", ir)
+    p = run(["verify", good, "--source", src])
+    assert p.returncode == 0, "正常 IR 未通过 verify：%s" % (p.stdout + p.stderr)
+    assert "verify: OK" in p.stdout, "缺少 OK 汇报：%s" % p.stdout
+
+    bad1 = json.loads(json.dumps(ir))
+    bad1["chapters"][0]["quote"] = "阿甲出生在河邊的大城市，家裡有三間瓦房。"
+    f1 = write_json_tmp(tmp, "bad-quote.json", bad1)
+    p1 = run(["verify", f1, "--source", src])
+    assert p1.returncode == 1 and "E301" in p1.stdout and "chapters[0].quote" in p1.stdout, \
+        "改错的引文没被抓到：%s" % (p1.stdout + p1.stderr)
+
+    bad2 = json.loads(json.dumps(ir))
+    bad2["chapters"][1]["text"][0] = "阿甲開始在橋邊幫人做飯，一次能煮四人。"
+    f2 = write_json_tmp(tmp, "bad-text.json", bad2)
+    p2 = run(["verify", f2, "--source", src])
+    assert p2.returncode == 1 and "E302" in p2.stdout and "chapters[1].text[0]" in p2.stdout, \
+        "改错的原文片段没被抓到：%s" % (p2.stdout + p2.stderr)
+
+    bad3 = json.loads(json.dumps(ir))
+    bad3["chapters"][2]["title"] = "第三章 不存在的章"
+    f3 = write_json_tmp(tmp, "bad-title.json", bad3)
+    p3 = run(["verify", f3, "--source", src])
+    assert p3.returncode == 1 and "E303" in p3.stdout, \
+        "对不上的章节标题没被报出：%s" % (p3.stdout + p3.stderr)
+    return "引文/片段/章题三类错误都能定位；9 章→3 章样本"
+
+
+def a14():
+    """A14：render 能判文本层；装了 pymupdf 就真渲染，没装就报缺依赖。"""
+    try:
+        import fitz  # noqa: F401
+    except ImportError:
+        p = run(["render", BOOK])
+        text = p.stdout + p.stderr
+        assert p.returncode == 2, "缺依赖时退出码应 2，实际 %d" % p.returncode
+        assert "pymupdf" in text, "缺依赖时没提示装 pymupdf：%s" % text
+        return "未装 pymupdf：只校验报错路径"
+    tmp = tempfile.mkdtemp(prefix="bookpage-a14-")
+    pdf = os.path.join(tmp, "sample.pdf")
+    doc = fitz.open()
+    for i in range(3):
+        page = doc.new_page()
+        page.insert_text((72, 100), "Sample page %d of the render test." % (i + 1))
+    doc.save(pdf)
+    doc.close()
+    out = os.path.join(tmp, "pages")
+    p = run(["render", pdf, "-o", out, "--pages", "1-2", "--dpi", "96"])
+    text = p.stdout + p.stderr
+    assert p.returncode == 0, "render 退出码 %d：%s" % (p.returncode, text)
+    pngs = sorted(n for n in os.listdir(out) if n.endswith(".png"))
+    assert pngs == ["p001.png", "p002.png"], "渲染页数不符：%s" % pngs
+    assert "文本层：有" in p.stdout, "有文字层的 PDF 被误判：%s" % p.stdout
+    return "3 页样本 → 只渲染 1-2 页，文本层判为「有」"
+
+
+def a15():
+    """A15：shelf 把同目录 IR 收成一页，链接可点、两次构建一致。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a15-")
+    shutil.copy(DEMO, os.path.join(tmp, "demo.json"))
+    out = os.path.join(tmp, "demo.html")
+    build = run(["build", DEMO, out])
+    assert build.returncode == 0, "构建书架样本页失败：%s" % (build.stdout + build.stderr)
+    ov = os.path.join(ROOT, "demo-overview.json")
+    shutil.copy(ov, os.path.join(tmp, "demo-overview.json"))
+    idx1 = os.path.join(tmp, "i1.html")
+    idx2 = os.path.join(tmp, "i2.html")
+    p1 = run(["shelf", tmp, "-o", idx1])
+    p2 = run(["shelf", tmp, "-o", idx2])
+    assert p1.returncode == 0 and p2.returncode == 0, "shelf 失败：%s" % (p1.stdout + p1.stderr)
+    assert sha256(idx1) == sha256(idx2), "shelf 两次输出不一致"
+    html = open(idx1, encoding="utf-8").read()
+    assert 'href="demo.html"' in html, "已构建的书没有指向成品的链接"
+    assert "未构建" in html, "缺构建的书没有标注"
+    assert "{{" not in html and "http://" not in html, "书架页含占位符或外部引用"
+    assert html.count('class="card"') == 2, "书架卡数量不符：%d" % html.count('class="card"')
+    return "2 本（1 已构建 / 1 未构建），两次同哈希"
+
+
 def main():
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
@@ -305,6 +425,9 @@ def main():
     check("A10", "overview 模式：4 区块渲染 + 拒绝路径", a10)
     check("A11", "reader 模式 + split 拆章", a11)
     check("A12", "论证主线 + 已读标记", a12)
+    check("A13", "verify：引文/片段/章题必须对上书稿", a13)
+    check("A14", "render：文本层判定 + 分页渲染", a14)
+    check("A15", "shelf：同目录 IR 收成一页", a15)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

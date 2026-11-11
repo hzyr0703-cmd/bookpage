@@ -961,6 +961,7 @@ def _v_reader(errs, ir):
         fv_str(errs, p, c, "role", 0, 34, required=False)
         fv_str(errs, p, c, "quote", 0, 90, required=False)
         fv_str(errs, p, c, "quote_from", 0, 12, required=False)
+        fv_str(errs, p, c, "srcTitle", 0, 40, required=False)
         tx = c.get("text")
         if tx is not None:
             if not isinstance(tx, list):
@@ -1783,17 +1784,310 @@ def extract_book(path):
     raise MissingExtractor("不支持的格式 %r（支持 txt/md/rst/adoc/docx/epub/rtf/pdf）" % ext)
 
 
+
+# ---------------------------------------------------------------- 校验 / 渲染 / 书架
+MATCH_MAP = str.maketrans({
+    "“": "\"", "”": "\"", "‘": "'", "’": "'",
+    "「": "\"", "」": "\"", "『": "\"", "』": "\"",
+    "…": "...", "　": " ", " ": " ",
+})
+
+
+def _match_key(text):
+    """比对用的归一化：统一引号/省略号、去掉所有空白，保留标点与字序。"""
+    return "".join(str(text).translate(MATCH_MAP).split())
+
+
+def _title_key(text):
+    return re.sub(r"[ \u3000]+", " ", str(text)).strip()
+
+
+def verify_ir(ir, source_text):
+    """核对 IR 里的引文与原文片段是否真的落在书稿里。返回 (errs, stats)。"""
+    errs = []
+    chapters, method = split_chapters(source_text)
+    mode = (ir.get("meta") or {}).get("mode") or "theme"
+    stats = {"mode": mode, "chapters": 0, "quotes": 0, "params": 0, "coverage": []}
+    if mode == "reader":
+        by_title = dict((_title_key(t), b) for t, b in chapters)
+        for i, c in enumerate(ir.get("chapters") or []):
+            title = _title_key(c.get("srcTitle") or c.get("title") or "")
+            body = by_title.get(title)
+            if body is None and title:
+                cand = [b for t, b in chapters if title in t or t in title]
+                body = cand[0] if len(cand) == 1 else None
+            if body is None:
+                errs.append(("E303", "chapters[%d].title" % i,
+                             "书里找不到这个章节标题（切章方式 %s）" % method))
+                continue
+            stats["chapters"] += 1
+            body_key = _match_key(body)
+            quote = c.get("quote")
+            if quote:
+                stats["quotes"] += 1
+                if _match_key(quote) not in body_key:
+                    errs.append(("E301", "chapters[%d].quote" % i, "引文不在该章正文里"))
+            covered = 0
+            for k, seg in enumerate(c.get("text") or []):
+                stats["params"] += 1
+                if _match_key(seg) in body_key:
+                    covered += len(seg)
+                else:
+                    errs.append(("E302", "chapters[%d].text[%d]" % (i, k),
+                                 "原文片段不在该章正文里"))
+            stats["coverage"].append(covered / float(max(1, len(body))))
+    else:
+        book_key = _match_key(source_text)
+        for i, sec in enumerate(ir.get("sections") or []):
+            if sec.get("signature") != "quote_card":
+                continue
+            q = (sec.get("data") or {}).get("text")
+            if q:
+                stats["quotes"] += 1
+                if _match_key(q) not in book_key:
+                    errs.append(("E301", "sections[%d].data.text" % i, "引文不在书稿里"))
+    return errs, stats
+
+
+def cmd_verify(argv):
+    src = None
+    if "--source" in argv:
+        i = argv.index("--source")
+        if i + 1 >= len(argv):
+            return _fail_usage("--source 后面要跟书稿路径")
+        src = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    if len(argv) != 1 or not src:
+        return _fail_usage("verify 用法：<ir.json> --source <书稿>")
+    try:
+        ir = _read_json(argv[0])
+    except (IOError, OSError) as exc:
+        return _fail_usage("读不到 %s（%s）" % (argv[0], exc))
+    except ValueError as exc:
+        sys.stdout.write("E100 root: JSON 解析失败：%s\n" % exc)
+        return EXIT_LINT
+    try:
+        text = _normalize(read_text(src))
+    except (IOError, OSError) as exc:
+        return _fail_usage("读不到 %s（%s）" % (src, exc))
+    errs, stats = verify_ir(ir, text)
+    for e in errs:
+        sys.stdout.write(format_error(e) + "\n")
+    if errs:
+        sys.stdout.write("verify: %d 个错误（核对 %d 章 / 引文 %d 条 / 原文段 %d 段）\n"
+                         % (len(errs), stats["chapters"], stats["quotes"], stats["params"]))
+        return EXIT_LINT
+    avg = sum(stats["coverage"]) / len(stats["coverage"]) if stats["coverage"] else 0.0
+    sys.stdout.write("verify: OK（核对 %d 章 / 引文 %d 条 / 原文段 %d 段 / 平均覆盖 %.1f%%）\n"
+                     % (stats["chapters"], stats["quotes"], stats["params"], avg * 100.0))
+    return EXIT_OK
+
+
+def cmd_render(argv):
+    out_dir = None
+    dpi = 180
+    pages = None
+    rest = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "-o" and i + 1 < len(argv):
+            out_dir = argv[i + 1]
+            i += 2
+            continue
+        if a == "--dpi" and i + 1 < len(argv):
+            try:
+                dpi = int(argv[i + 1])
+            except ValueError:
+                return _fail_usage("--dpi 需要整数")
+            i += 2
+            continue
+        if a == "--pages" and i + 1 < len(argv):
+            spec = argv[i + 1]
+            try:
+                if "-" in spec:
+                    lo, hi = spec.split("-", 1)
+                    pages = (int(lo), int(hi))
+                else:
+                    pages = (int(spec), int(spec))
+            except ValueError:
+                return _fail_usage("--pages 形如 1-8 或 3")
+            i += 2
+            continue
+        rest.append(a)
+        i += 1
+    if len(rest) != 1:
+        return _fail_usage("render 用法：<file.pdf> [-o dir] [--dpi 180] [--pages 1-8]")
+    src = rest[0]
+    try:
+        import fitz
+    except ImportError:
+        return _fail_usage("渲染 PDF 需要 pymupdf：python -m pip install pymupdf")
+    try:
+        doc = fitz.open(src)
+    except Exception as exc:
+        return _fail_usage("打不开 %s（%s）" % (src, exc))
+    total = doc.page_count
+    if total <= 0:
+        doc.close()
+        return _fail_usage("%s 没有任何页面" % src)
+    sample = sorted(set([0, total // 4, total // 2, (3 * total) // 4, total - 1]))
+    sample = [p for p in sample if 0 <= p < total]
+    hit, chars = 0, 0
+    for p in sample:
+        t = doc[p].get_text().strip()
+        if t:
+            hit += 1
+            chars += len(t)
+    if out_dir is None:
+        out_dir = os.path.splitext(src)[0] + "-pages"
+    if pages is None:
+        lo, hi = 1, min(total, 8)
+    else:
+        lo, hi = max(1, pages[0]), min(total, pages[1])
+    if hi < lo:
+        lo, hi = 1, min(total, 1)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    for n in range(lo, hi + 1):
+        pix = doc[n - 1].get_pixmap(dpi=dpi)
+        pix.save(os.path.join(out_dir, "p%03d.png" % n))
+    doc.close()
+    sys.stdout.write("render: %d 页 -> %s（%d dpi，本次 %d 页）\n"
+                     % (total, out_dir, dpi, hi - lo + 1))
+    if hit:
+        sys.stdout.write("  文本层：有（抽样 %d 页，%d 页抽到 %d 字）→ 可直接 extract\n"
+                         % (len(sample), hit, chars))
+    else:
+        sys.stdout.write("  文本层：无（抽样 %d 页全 0 字）→ 扫描件，走视觉转录\n" % len(sample))
+    sys.stdout.write("  页码：书版页码 = PDF 物理页 - 前置页数（先用目录页核对一次）\n")
+    return EXIT_OK
+
+
+SHELF_CSS = """
+body{margin:0;background:#f7f3ea;color:#2b2b2b;font-family:"Noto Serif SC","Source Han Serif SC",Georgia,serif}
+.page{max-width:1000px;margin:0 auto;padding:56px 24px 80px}
+h1{font-size:34px;margin:0 0 10px}
+.lead{color:#6b6257;margin:0 0 28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{display:block;background:#fffdf8;border:1px solid #e6ddcc;border-radius:12px;padding:18px 18px 16px;text-decoration:none;color:inherit}
+.card:hover{border-color:#c9b899;transform:translateY(-1px)}
+.b{font-size:19px;font-weight:600;margin:0 0 6px}
+.a{color:#8a7f70;font-size:13px;margin:0 0 12px}
+.m{font-size:12px;color:#9a8f80;border-top:1px dashed #e6ddcc;padding-top:10px;display:flex;justify-content:space-between}
+.empty{color:#9a8f80}
+footer{margin-top:36px;color:#a39785;font-size:12px;border-top:1px solid #e6ddcc;padding-top:14px}
+"""
+
+SHELF_LABEL = {"theme": "主题页", "overview": "全书骨架", "reader": "速读页"}
+
+
+def cmd_shelf(argv):
+    out = "index.html"
+    dirs = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "-o" and i + 1 < len(argv):
+            out = argv[i + 1]
+            i += 2
+            continue
+        dirs.append(argv[i])
+        i += 1
+    if not dirs:
+        dirs = ["."]
+    rows = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".json"):
+                continue
+            p = os.path.join(d, name)
+            try:
+                ir = _read_json(p)
+            except Exception:
+                continue
+            if not isinstance(ir, dict) or ir.get("schema") != SCHEMA:
+                continue
+            meta = ir.get("meta") or {}
+            mode = meta.get("mode") or "theme"
+            stem = os.path.splitext(name)[0]
+            html = None
+            for cand in (os.path.join(d, stem + ".html"),
+                         os.path.join(d, "out", stem + ".html")):
+                if os.path.isfile(cand):
+                    html = cand
+                    break
+            if mode == "reader":
+                count, unit = len(ir.get("chapters") or []), "章"
+            elif mode == "overview":
+                count, unit = len(ir.get("chapterMap") or []), "章"
+            else:
+                count, unit = len(ir.get("sections") or []), "节"
+            rows.append({"book": meta.get("book") or stem, "author": meta.get("author") or "",
+                         "mode": mode, "theme": meta.get("theme") or "paper",
+                         "count": count, "unit": unit, "html": html})
+    seen, uniq = set(), []
+    for r in rows:
+        key = (r["book"], r["mode"])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(r)
+    order = {"reader": 0, "overview": 1, "theme": 2}
+    uniq.sort(key=lambda r: (order.get(r["mode"], 9), r["book"]))
+    out_dir = os.path.dirname(os.path.abspath(out))
+    parts = []
+    for r in uniq:
+        if r["html"]:
+            href = os.path.relpath(os.path.abspath(r["html"]), out_dir).replace("\\", "/")
+            tag = ('<a class="card" href="%s">' % esc(href))
+            close = "</a>"
+        else:
+            tag = '<div class="card">'
+            close = "</div>"
+        parts.append(tag)
+        parts.append('<p class="b">%s</p>' % esc(r["book"]))
+        if r["author"]:
+            parts.append('<p class="a">%s</p>' % esc(r["author"]))
+        else:
+            parts.append('<p class="a">未署名作者</p>')
+        parts.append('<p class="m"><span>%s · %d %s</span><span>%s</span></p>'
+                     % (SHELF_LABEL.get(r["mode"], r["mode"]), r["count"], r["unit"],
+                        esc(r["theme"]) if r["html"] else "未构建"))
+        parts.append(close)
+    body = "\n".join(parts) if parts else '<p class="empty">这个目录里没有找到 bookpage IR。</p>'
+    doc = ("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+           "<title>bookpage 书架</title>\n<style>%s</style>\n</head>\n<body>\n"
+           "<div class=\"page\">\n<h1>书架</h1>\n<p class=\"lead\">共 %d 本，断网也能打开。</p>\n"
+           "<div class=\"grid\">\n%s\n</div>\n"
+           "<footer>bookpage 生成 · 同目录下的 IR 会被自动收进来</footer>\n</div>\n</body>\n</html>\n"
+           % (SHELF_CSS, len(uniq), body))
+    with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(doc)
+    missing = sum(1 for r in uniq if not r["html"])
+    sys.stdout.write("shelf: %d 本 -> %s（缺构建 %d 本）\n" % (len(uniq), out, missing))
+    for r in uniq:
+        sys.stdout.write("  %-4s %s（%d %s）\n" % (SHELF_LABEL.get(r["mode"], r["mode"]),
+                                                  r["book"], r["count"], r["unit"]))
+    return EXIT_OK
+
 # ---------------------------------------------------------------- 命令
 USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
 
 用法：
-  python bookpage.py lint  <ir.json>
-  python bookpage.py build <ir.json> <out.html> [--degrade]
+  python bookpage.py lint   <ir.json>
+  python bookpage.py build  <ir.json> <out.html> [--degrade]
+  python bookpage.py verify <ir.json> --source <书稿>
   python bookpage.py tokens <file>
   python bookpage.py chapters <file>
   python bookpage.py extract <book> [-o out.txt]
+  python bookpage.py split   <book> [-o dir]
+  python bookpage.py render  <file.pdf> [-o dir] [--dpi 180] [--pages 1-8]
+  python bookpage.py shelf   [dir ...] [-o index.html]
 
-退出码：0 成功 / 1 lint 有错 / 2 用法错误
+退出码：0 成功 / 1 校验有错 / 2 用法错误
 组件：%s
 """ % (VERSION, "、".join(SIGNATURES))
 
@@ -1984,8 +2278,9 @@ def cmd_split(argv):
     return EXIT_OK
 
 
-COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "extract": cmd_extract,
-            "split": cmd_split}
+COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters,
+            "extract": cmd_extract, "split": cmd_split, "verify": cmd_verify, "render": cmd_render,
+            "shelf": cmd_shelf}
 
 
 def main(argv):
