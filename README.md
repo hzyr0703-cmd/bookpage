@@ -22,7 +22,7 @@ cp -r projects/bookpage ~/.dsh/skills/bookpage    # 或推到私有仓库后用 
 `out/` 与 `contracts.txt` 这类工作产物不必带过去。
 
 与 `book-to-webpage` 的分工：那个是一次性交付的“手工拼版”路径，这个是可复现的“IR + 渲染”路径，
-两者可共存；全书概览模式仍只有前者支持。
+两者可共存；概览（overview）与速读（reader）两种单页形态只有 bookpage 支持。
 
 ## 用法
 
@@ -35,6 +35,12 @@ python bookpage.py build demo.json out/demo.html
 
 # 全书概览模式（mode=overview，单页滚动、无 tab）：框架 / 章节地图 / 概念地图 / 决策规则
 python bookpage.py build demo-overview.json out/demo-overview.html
+
+# 速读模式（mode=reader）：目录 + 章节卡 + 搜索 + 原文折叠，一页读完一本书
+python bookpage.py build demo-reader.json out/demo-reader.html
+
+# 拆书：按章切成 ch-01.md … + index.json（去页眉/许可证/章末注释，无标题时按 6,000 字等分）
+python bookpage.py split 书.txt -o chapters/
 
 # 模板校验失败但仍想看效果：把出错的 section 降级成 prose，并留 <!-- degraded -->
 python bookpage.py build demo.json out/demo.html --degrade
@@ -68,9 +74,10 @@ python tests/selftest.py
 | A5 | 中文 token 估算 ≥ 上游算法的 8 倍 | PASS：3,379 vs 202（约 17 倍） |
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
 | A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（27,221 bytes） |
-| A8 | 金标准回归：三份样例 IR（demo / all / overview）哈希钉死 + 12 个组件标记齐备 | PASS（demo `42a8d1400d…` / all `c9f7c88480…` / overview `0f661f2118…`，12/12） |
+| A8 | 金标准回归：四份样例 IR（demo / all / overview / reader）哈希钉死 + 12 个组件标记齐备 | PASS（demo `913fa763f1…` / all `f96fcdab2e…` / overview `82c2ab18b0…` / reader `9d51e5e90d…`，12/12） |
 | A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖或解析失败时 rc=2 并说明原因；本机同时有 pypdf+reportlab 时再跑一份真 PDF | PASS（公版书 epub 46,157 字符 / 9 章；真 PDF 3 章） |
 | A10 | overview 模式：四区块渲染、两次构建同哈希、无 tab/panel、无外部引用；空区块报 E102、误写 sections 报 E100、非法 relation 被拒 | PASS（`29e816814f31e5a2…`，三条拒绝路径） |
+| A11 | reader 模式 + split：样书切出 8 章（文件数与 index 一致、每文件有标题行）、reader 两次构建同哈希、无 tab、有目录与搜索框、无外部引用；无标题书回退到等分切 | PASS（8 章 / `9d51e5e90d…` / 等分回退） |
 
 ## 视觉验证
 
@@ -115,12 +122,13 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 `pdf` 需 `pypdf`、`mobi/azw3` 需 calibre —— 缺依赖时以退出码 2 明确说缺什么，不产出空文本。
 同一本公版书走 `.epub` 与 `.txt` 两条路径，字符数 46,157 vs 46,497、章节数均为 9。
 
-## 两种模式
+## 三种模式
 
-| mode | 页面形态 | 结构 |
-| --- | --- | --- |
-| `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 |
-| `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 |
+| mode | 页面形态 | 结构 | 什么时候用 |
+| --- | --- | --- | --- |
+| `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 | 讲透某个主题、某个机制 |
+| `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 | 先看全书骨架再决定读哪 |
+| `reader` | 单页滚动，左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 | `chapters[]` 3–40 章，每章 gist/points/quote/text | **快速阅览完一本书**：按章扫读、点开原文核对 |
 
 ## 组件（12 个，含 `prose` 逃生口）
 
@@ -167,8 +175,8 @@ bookpage 把“拼 DOM”中不变的 90% 固化进渲染器，模型只产 IR�
 3. **tab 选中态以面板为准**：启动时取“已 active 的面板”对应的 tab，取不到才回退第一个。
    否则“面板换了、tab 还指着第一节”这类状态分裂迟早出现（做视觉验证时就撞到过一次）。
 
-未做：全书 overview 模式（frameworks / chapterMap / conceptMap / decisionRules）、PDF/EPUB 提取
-（复用 book-to-skill）、浏览器端 DOM 校验（改为对 IR 与产物做纯函数断言，因而不引入 playwright）。
+未做：mobi/azw3 提取（要 calibre）、浏览器端 DOM 校验（改为对 IR 与产物做纯函数断言，因而不引入 playwright）、
+多人协作的 IR 合并与增量重渲染。
 
 ## 目录
 

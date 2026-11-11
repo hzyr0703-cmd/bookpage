@@ -27,7 +27,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 ① 拆书 → ② 只读当前章 → ③ 写 IR.json → ④ lint → ⑤ 按错误码改 → ⑥ build → ⑦ 自检
 ```
 
-1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
+1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`，再 `python bookpage.py split full_text.txt -o chapters/` 按章切开（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
 2. **选题**：一个页面讲一个主题，选 4–7 节；每节一个组件；主题散布全书时先把相关章节列出来，再统一取用。
 3. **写 IR**：严格按下面的骨架。`signature` 只能取白名单值；字数上限先看契约表，别写完再被 lint 打回。
 4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
@@ -108,6 +108,47 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 
 概览模式的判断标准：读者滚完一页，能说出**这本书由几个框架组成、每章各干什么、概念之间怎么连**。章节地图按原书顺序写全（`n` 连续更易读），不要挑“重要章节”跳跃编号。
 
+## 速读模式（`meta.mode = "reader"`）
+
+目标是**让读者在一页内把整本书过一遍**，不是讲透某一处。此时同样**不要写 `sections`**（写了报 E100），改用 `chapters[]`：
+
+```json
+{
+  "schema": "bookpage/1",
+  "meta": {"book": "书名", "author": "作者", "mode": "reader", "theme": "paper",
+           "topic": "全书速读", "sources": ["版本 / 译本 / 年份"]},
+  "hero": {"eyebrow": "作者 · 年份", "title": "一句概括全书的主张", "lede": "60–120 字：这本怎么读、页面给什么",
+           "thesis": "20–60 字：全书一句话判断"},
+  "chapters": [
+    {"n": 1, "title": "原书章题（≤24 字）", "gist": "一章三句话讲清（10–70 字）",
+     "points": ["≤40 字", "…2–4 条：这章发生了什么"],
+     "quote": "≤90 字原文", "quote_from": "≤12 字（第几章）",
+     "text": ["原书段落，1–3 段，每段 ≤220 字"]}
+  ],
+  "questions": [{"q": "≤40 字", "hint": "≤60 字（可选）"}]
+}
+```
+
+| 字段 | 约束 | 说明 |
+| --- | --- | --- |
+| `chapters` | 3–40 章，`n` 递增 | 按原书顺序，不跳号；短书就一章一张卡 |
+| `gist` | 10–70 字 | 一句话：这章发生了什么 |
+| `points` | 2–4 条，每条 ≤40 字 | 可扫读的要点，不是复述 gist |
+| `quote` | ≤90 字 | 原文金句，尽量照录，不要改写 |
+| `text` | 1–3 段，每段 ≤220 字 | 折叠区里的原文片段，让读者能核对 |
+
+页面形态：hero → 搜索框 + 滚动进度条 → 左侧 sticky 目录 + 章节卡（章号/标题/gist/要点/金句/「读原文」折叠）。搜索框按标题、gist、要点、原文片段过滤章节，目录同步隐藏。
+
+**拆书先行**：先用 `split` 把书按章切开，一章一个 `ch-NN.md`，再逐章写 `gist/points/quote`：
+
+```bash
+python bookpage.py split <书> -o chapters/     # 输出 ch-01.md … + index.json（章节数/字数/标题）
+```
+
+`split` 会去掉 Gutenberg 页眉与许可证尾巴、章末 `〔N〕` 注释块、重复印的章题；找不到章节标题时按 6,000 字等分。
+
+速读模式的判断标准：读者滚完这一页，能按章复述**这本书讲了什么、每章推进在哪**，并且想核对哪句时能点开原文。
+
 ## 错误码 → 改法
 
 | 码 | 含义 | 怎么修 |
@@ -130,7 +171,9 @@ python bookpage.py build  ir.json out.html --degrade # 出错的节降级为 pro
 python bookpage.py tokens <文本文件>                 # 中文感知的 token 估算
 python bookpage.py chapters <文本文件>               # 中文章节计数（第N章/第N回/Chapter N）
 python bookpage.py extract <书> [-o out.txt]         # 书源 → 纯文本（docx/epub 零依赖，pdf 需 pypdf）
-python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）自检
+python bookpage.py split  <文本文件> -o chapters/    # 按章切开：ch-NN.md + index.json
+python bookpage.py build  ir.json out.html           # 三种模式共用同一个 build（按 meta.mode 分派）
+python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）+ A11（reader/split）
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。

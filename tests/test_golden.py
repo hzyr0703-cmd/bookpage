@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""A8 金标准回归：两份样例 IR 的产物哈希锁死 + 11 个组件标记齐备。
+"""A8 金标准回归：四份样例 IR 的产物哈希锁死 + 12 个组件标记齐备。
 
 A1 只证明"同一份 IR 两次构建相同"，但没锁住"改渲染器后产物是否被无意改动"。
-本文件把 demo.json（7 组件）与 all-components.json（另 4 组件）的 sha256 钉死；
+本文件把 demo / all-components / demo-overview / demo-reader 四份 IR 的 sha256 钉死；
 任何组件改动只要改变输出字节，这里立刻红。
 
 用法：python tests/test_golden.py            # 判定并打印
@@ -23,7 +23,7 @@ ROOT = os.path.dirname(HERE)
 # 哈希全部从 tests/golden.sha 读取；首次或有意改版后跑 --update 重钉
 DEMO_SHA = None
 
-# 每个组件在产物 HTML 里的独有标记；用来证明"11 个组件都真出现了"
+# 每个组件在产物 HTML 里的独有标记；用来证明"12 个组件都真出现了"
 MARKERS = {
     "s1": "chain-step", "s2": "matrix", "s3": "timeline", "s4": "fold",
     "s5": "ba-col", "s6": "selector", "s7": "quote",
@@ -72,13 +72,22 @@ def main() -> int:
     pins = read_pins()
     tmp = tempfile.mkdtemp(prefix="bookpage-golden-")
     results = []
-    for key, ir in (("demo", "demo.json"), ("all", os.path.join("tests", "all-components.json"))):
+    products = (
+        ("demo", "demo.json", ()),
+        ("all", os.path.join("tests", "all-components.json"), ()),
+        ("overview", "demo-overview.json", ("frameworks", "cm-row", "rule")),
+        ("reader", "demo-reader.json", ("class=\"toc\"", "class=\"chap\"", "rFilter")),
+    )
+    for key, ir, need in products:
         html = build(ir, os.path.join(tmp, key + ".html"))
         got = sha(html)
         want = pins.get(key)
         ok = (want is None) or (got == want)
-        results.append((key, len(html), got, want, ok))
-        print("%-5s %7d bytes  sha=%s  pinned=%s  %s" % (key, len(html), got[:16], (want or "(none)")[:16], "OK" if ok else "MISMATCH"))
+        miss = [m for m in need if m.encode("utf-8") not in html]
+        results.append((key, len(html), got, want, ok and not miss))
+        print("%-8s %7d bytes  sha=%s  pinned=%s  %s%s" % (
+            key, len(html), got[:16], (want or "(none)")[:16], "OK" if ok else "MISMATCH",
+            "" if not miss else "  缺标记 " + ",".join(miss)))
     # 组件标记齐备（两份产物合并检查）
     joined = ""
     for key, _n, _g, _w, _o in results:

@@ -221,6 +221,45 @@ def a10():
     return "overview 4 区块，两次同哈希 %s，三条拒绝路径" % h1[:16]
 
 
+
+def a11():
+    tmp = tempfile.mkdtemp(prefix="bookpage-a11-")
+    d = os.path.join(tmp, "chapters")
+    p = run(["split", BOOK, "-o", d])
+    assert p.returncode == 0, "split 退出码 %d：%s" % (p.returncode, p.stdout + p.stderr)
+    idx = read_json(os.path.join(d, "index.json"))
+    n = len(idx["chapters"])
+    assert n == 8, "sample-book 应切出 8 章，实际 %d" % n
+    files = sorted(f for f in os.listdir(d) if f.endswith(".md"))
+    assert len(files) == n, "ch-*.md 数 %d ≠ %d" % (len(files), n)
+    for f in files:
+        with open(os.path.join(d, f), encoding="utf-8") as fh:
+            assert fh.readline().startswith("# "), "%s 缺标题行" % f
+    rd = os.path.join(ROOT, "demo-reader.json")
+    p0 = run(["lint", rd])
+    assert p0.returncode == 0, "reader lint 退出码 %d：%s" % (p0.returncode, p0.stdout + p0.stderr)
+    o1, o2 = os.path.join(tmp, "r1.html"), os.path.join(tmp, "r2.html")
+    for dst in (o1, o2):
+        q = run(["build", rd, dst])
+        assert q.returncode == 0, "reader build 失败：%s" % (q.stdout + q.stderr)
+    h1, h2 = sha256(o1), sha256(o2)
+    assert h1 == h2, "reader 两次构建哈希不同"
+    html = open(o1, encoding="utf-8").read()
+    assert 'role="tab"' not in html, "reader 不该出现 tab"
+    assert 'class="toc"' in html and 'id="rFilter"' in html, "reader 缺目录或搜索框"
+    ir = read_json(rd)
+    assert html.count('class="chap"') == len(ir["chapters"]), "章节卡数量与 IR 不符"
+    assert "{{" not in html and "http://" not in html, "reader 含占位符或外部引用"
+    plain = os.path.join(tmp, "no-heading.txt")
+    with open(plain, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n\n".join("第 %d 段内容，没有章节标题，仅作为等分切分的填充文字。" % i for i in range(1, 320)))
+    p3 = run(["split", plain, "-o", os.path.join(tmp, "eq")])
+    assert p3.returncode == 0, "无标题书 split 失败：%s" % (p3.stdout + p3.stderr)
+    eq = read_json(os.path.join(tmp, "eq", "index.json"))
+    assert eq["method"] == "equal-split" and len(eq["chapters"]) >= 2, "无标题书未走等分切"
+    return "split 8 章 / reader 两次同哈希 %s / 无 tab / 等分回退" % h1[:16]
+
+
 def main():
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
@@ -231,6 +270,7 @@ def main():
     check("A7", "干净环境零依赖直跑", a7)
     check("A9", "书源提取：docx/epub/纯文本 + 缺依赖报错", a9)
     check("A10", "overview 模式：4 区块渲染 + 拒绝路径", a10)
+    check("A11", "reader 模式 + split 拆章", a11)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

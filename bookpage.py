@@ -209,6 +209,27 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .ov-block h2{font-size:19px;margin:0 0 6px}
 .ov-block .lead{margin:0 0 16px}
 @media (max-width:520px){.frameworks{grid-template-columns:1fr}}
+/* ---- 速读模式（reader）：目录 + 章节卡 + 搜索 + 进度 ---- */
+#rProg{position:fixed;left:0;top:0;height:2px;width:0;background:var(--red);z-index:60}
+.rbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:10px 0;background:var(--bg);border-bottom:1px solid var(--line)}
+#rFilter{flex:1;max-width:320px;font:inherit;font-size:14px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink)}
+#rFilter:focus{outline:2px solid var(--red);outline-offset:1px}
+#rCount{font-size:12.5px;color:var(--muted)}
+.rgrid{display:grid;grid-template-columns:190px minmax(0,1fr);gap:30px;margin-top:22px}
+.toc{position:sticky;top:60px;align-self:start;max-height:calc(100vh - 90px);overflow:auto;font-size:13.5px;line-height:1.85}
+.toc a{display:block;color:var(--ink-soft);text-decoration:none;padding:2px 0}
+.toc a:hover{color:var(--ink);text-decoration:underline}
+.chap{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px;scroll-margin-top:70px}
+.chap .n{font-size:12px;letter-spacing:.08em;color:var(--red)}
+.chap h2{margin:2px 0 6px;font-size:18px;line-height:1.45}
+.chap .gist{margin:6px 0 10px;font-size:15px;line-height:1.85;color:var(--ink)}
+.chap ul{margin:0;padding-left:18px;font-size:14px;line-height:1.9;color:var(--ink)}
+.chap blockquote{margin:10px 0 0;padding:8px 14px;border-left:2px solid var(--gold);background:var(--surface-strong);font-size:14px;line-height:1.85}
+.chap cite{display:block;margin-top:4px;font-size:12px;color:var(--muted);font-style:normal}
+.chap details{margin-top:10px}
+.chap details summary{cursor:pointer;font-size:13px;color:var(--red)}
+.chap details p{margin:8px 0 0;font-size:14.5px;line-height:1.95;color:var(--ink)}
+@media (max-width:880px){.rgrid{grid-template-columns:1fr}.toc{position:static;max-height:none;display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px}.toc a{border:1px solid var(--line);border-radius:8px;padding:3px 10px}}
 """
 
 # ---------------------------------------------------------------- 组件层 JS
@@ -810,6 +831,54 @@ def _v_overview(errs, ir):
         errs.append(("E102", "frameworks", "overview 模式至少要有 frameworks/chapterMap/conceptMap/decisionRules 之一"))
 
 
+# ---------------------------------------------------------------- 速读模式校验
+def _v_reader(errs, ir):
+    """reader 模式：按章排列的速读卡，章号必须递增且连续可读。"""
+    chs = ir.get("chapters")
+    if not isinstance(chs, list):
+        errs.append(("E103", "chapters", "期望 array，得到 %s" % _typename(chs)))
+        return
+    if not (3 <= len(chs) <= 40):
+        errs.append(("E104", "chapters", "%d 章，期望 3–40" % len(chs)))
+        return
+    prev = 0
+    for i, c in enumerate(chs):
+        p = "chapters[%d]" % i
+        if not isinstance(c, dict):
+            errs.append(("E103", p, "期望 object，得到 %s" % _typename(c)))
+            continue
+        n = c.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or not (1 <= n <= 99):
+            errs.append(("E103", p + ".n", "期望 1–99 的整数，得到 %s" % _typename(n)))
+        elif n <= prev:
+            errs.append(("E104", p + ".n", "章号需递增（前一个是 %d）" % prev))
+        else:
+            prev = n
+        fv_str(errs, p, c, "title", 1, 24)
+        fv_str(errs, p, c, "gist", 10, 70)
+        pts = fv_list(errs, p, c, "points", 2, 4)
+        if pts:
+            for j, t in enumerate(pts):
+                if not isinstance(t, str):
+                    errs.append(("E103", "%s.points[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
+                elif not (1 <= len(t) <= 40):
+                    errs.append(("E104", "%s.points[%d]" % (p, j), "%d 字，期望 1–40" % len(t)))
+        fv_str(errs, p, c, "quote", 0, 90, required=False)
+        fv_str(errs, p, c, "quote_from", 0, 12, required=False)
+        tx = c.get("text")
+        if tx is not None:
+            if not isinstance(tx, list):
+                errs.append(("E103", p + ".text", "期望 array，得到 %s" % _typename(tx)))
+            elif not (1 <= len(tx) <= 3):
+                errs.append(("E104", p + ".text", "%d 段，期望 1–3" % len(tx)))
+            else:
+                for j, t in enumerate(tx):
+                    if not isinstance(t, str):
+                        errs.append(("E103", "%s.text[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
+                    elif not (1 <= len(t) <= 220):
+                        errs.append(("E104", "%s.text[%d]" % (p, j), "%d 字，期望 1–220" % len(t)))
+
+
 # ---------------------------------------------------------------- 顶层校验
 def lint_ir(ir):
     """返回 [(code, path, msg)]，空列表代表通过。"""
@@ -829,8 +898,8 @@ def lint_ir(ir):
     fv_str(errs, "meta", meta, "author", 0, 30, required=False)
     fv_str(errs, "meta", meta, "topic", 0, 30, required=False)
     mode = fv_str(errs, "meta", meta, "mode", 1, 12)
-    if mode and mode not in ("theme", "overview"):
-        errs.append(("E100", "meta.mode", "只支持 theme / overview，收到 %r" % mode))
+    if mode and mode not in ("theme", "overview", "reader"):
+        errs.append(("E100", "meta.mode", "只支持 theme / overview / reader，收到 %r" % mode))
     theme = fv_str(errs, "meta", meta, "theme", 1, 12)
     if theme and theme not in THEMES:
         errs.append(("E202", "meta.theme", "未知主题 %r（可选 %s）" % (theme, "/".join(THEME_NAMES))))
@@ -854,11 +923,15 @@ def lint_ir(ir):
     fv_str(errs, "hero", hero, "lede", 60, 140)
     fv_str(errs, "hero", hero, "thesis", 0, 60, required=False)
 
-    if mode == "overview":
+    if mode in ("overview", "reader"):
         if "sections" in ir:
-            errs.append(("E100", "sections", "overview 模式不用 sections，改用 frameworks/chapterMap/conceptMap/decisionRules"))
-        _v_overview(errs, ir)
-    secs = ir.get("sections") if mode != "overview" else []
+            huge = "overview 模式不用 sections，改用 frameworks/chapterMap/conceptMap/decisionRules" if mode == "overview" else "reader 模式不用 sections，改用 chapters[]"
+            errs.append(("E100", "sections", huge))
+        if mode == "overview":
+            _v_overview(errs, ir)
+        else:
+            _v_reader(errs, ir)
+    secs = ir.get("sections") if mode not in ("overview", "reader") else []
     if not isinstance(secs, list):
         errs.append(("E103", "sections", "期望 array，得到 %s" % _typename(secs)))
         secs = []
@@ -1045,10 +1118,130 @@ def render_overview(ir):
     return "\n".join(out) + "\n"
 
 
+READER_JS = """(function () {
+  var bar = document.getElementById("rProg");
+  function onScroll() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var pct = h > 0 ? (window.scrollY / h) * 100 : 0;
+    if (bar) bar.style.width = Math.min(100, Math.max(0, pct)) + "%";
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  var box = document.getElementById("rFilter");
+  var cnt = document.getElementById("rCount");
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".chap"));
+  var links = Array.prototype.slice.call(document.querySelectorAll(".toc a"));
+  function apply() {
+    var q = (box.value || "").trim().toLowerCase();
+    var shown = 0;
+    cards.forEach(function (c, i) {
+      var hit = !q || (c.getAttribute("data-search") || "").toLowerCase().indexOf(q) >= 0;
+      c.style.display = hit ? "" : "none";
+      if (links[i]) links[i].style.display = hit ? "" : "none";
+      if (hit) shown++;
+    });
+    if (cnt) cnt.textContent = "显示 " + shown + " / " + cards.length + " 章";
+  }
+  if (box) { box.addEventListener("input", apply); apply(); }
+})();"""
+
+def render_reader(ir):
+    meta = ir.get("meta") or {}
+    hero = ir.get("hero") or {}
+    book = meta.get("book") or ""
+    theme = meta.get("theme") if meta.get("theme") in THEMES else "paper"
+    theme_name = {"paper": "暖纸", "minimal": "极简", "dark": "夜读"}.get(theme, "暖纸")
+    chs = [c for c in (ir.get("chapters") or []) if isinstance(c, dict)]
+
+    out = []
+    out.append("<!DOCTYPE html>")
+    out.append('<html lang="zh-CN" data-theme="%s">' % theme)
+    out.append("<head>")
+    out.append('<meta charset="utf-8">')
+    out.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    title = "《%s》" % book if book else ""
+    if hero.get("title"):
+        title = (title + " · " + hero["title"]) if title else hero["title"]
+    out.append("<title>%s</title>" % esc(title))
+    out.append('<meta name="generator" content="bookpage %s">' % VERSION)
+    out.append("<style>")
+    out.append(theme_block(theme))
+    out.append(BASE_CSS)
+    out.append("</style>")
+    out.append("</head>")
+    out.append("<body>")
+    out.append('<div id="rProg"></div>')
+    crumb = " · ".join([x for x in (book, meta.get("topic")) if x])
+    out.append('<div class="topbar"><span class="crumb">%s</span></div>' % esc(crumb))
+    out.append('<main class="page">')
+    out.append('<header class="hero">')
+    if hero.get("eyebrow"):
+        out.append('<div class="eyebrow">%s</div>' % esc(hero["eyebrow"]))
+    out.append("<h1>%s</h1>" % esc(hero.get("title") or ""))
+    if hero.get("lede"):
+        out.append('<p class="lede">%s</p>' % esc(hero["lede"]))
+    if hero.get("thesis"):
+        out.append('<div class="thesis">%s</div>' % esc(hero["thesis"]))
+    out.append("</header>")
+    out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="搜章节 / 关键词，例如：财政" aria-label="搜索章节"><span id="rCount"></span></div>')
+    out.append('<div class="rgrid">')
+    out.append('<nav class="toc" aria-label="章节目录">')
+    for c in chs:
+        n = c.get("n", "")
+        out.append('<a href="#ch-%s">%s · %s</a>' % (esc(str(n)), esc(str(n)), esc(c.get("title") or "")))
+    out.append("</nav>")
+    out.append("<div>")
+    for c in chs:
+        n = str(c.get("n", ""))
+        parts = [c.get("title") or "", c.get("gist") or ""]
+        parts.extend([p for p in (c.get("points") or []) if isinstance(p, str)])
+        if c.get("quote"):
+            parts.append(c["quote"])
+        parts.extend([t for t in (c.get("text") or []) if isinstance(t, str)])
+        search = esc(" ".join(parts))
+        out.append('<article class="chap" id="ch-%s" data-search="%s">' % (esc(n), search))
+        out.append('<div class="n">%s</div>' % esc(n))
+        out.append("<h2>%s</h2>" % esc(c.get("title") or ""))
+        out.append('<p class="gist">%s</p>' % esc(c.get("gist") or ""))
+        pts = [p for p in (c.get("points") or []) if isinstance(p, str)]
+        if pts:
+            out.append("<ul>")
+            for t in pts:
+                out.append("<li>%s</li>" % esc(t))
+            out.append("</ul>")
+        if c.get("quote"):
+            out.append("<blockquote>%s" % esc(c["quote"]))
+            if c.get("quote_from"):
+                out.append("<cite>%s</cite>" % esc(c["quote_from"]))
+            out.append("</blockquote>")
+        tx = [t for t in (c.get("text") or []) if isinstance(t, str)]
+        if tx:
+            out.append("<details><summary>读原文（%d 段）</summary>" % len(tx))
+            for t in tx:
+                out.append("<p>%s</p>" % esc(t))
+            out.append("</details>")
+        out.append("</article>")
+    out.append("</div>")
+    out.append("</div>")
+    foot = " · ".join([x for x in (book, meta.get("author")) if x])
+    out.append('<footer class="footer">%s%s · 全书速读 · %d 章 · 主题 %s · 由 bookpage %s 生成</footer>'
+               % (esc(foot), "，" if foot else "", len(chs), theme_name, VERSION))
+    out.append("</main>")
+    out.append("<script>")
+    out.append(READER_JS)
+    out.append("</script>")
+    out.append("</body>")
+    out.append("</html>")
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------- 页面组装
 def render_page(ir, degraded=()):
-    if (ir.get("meta") or {}).get("mode") == "overview":
+    mode = (ir.get("meta") or {}).get("mode")
+    if mode == "overview":
         return render_overview(ir)
+    if mode == "reader":
+        return render_reader(ir)
     meta = ir.get("meta") or {}
     hero = ir.get("hero") or {}
     book = meta.get("book") or ""
@@ -1167,6 +1360,81 @@ def count_chapters(text):
         if CHAPTER_RE.match(s) or EN_CHAPTER_RE.match(s):
             n += 1
     return n
+
+
+BOILER_START = re.compile(r"^\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG.*$", re.M | re.I)
+BOILER_END = re.compile(r"^\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG.*$", re.M | re.I)
+CJK_SPACE = re.compile(r"(?<=[\u4e00-\u9fff])[ \u3000]+(?=[\u4e00-\u9fff])")
+
+
+def strip_boilerplate(text):
+    """去掉公版书站点的页眉/许可证尾巴，避免最后一章被版权文本撑大。"""
+    m = BOILER_START.search(text)
+    if m:
+        text = text[m.end():]
+    m = BOILER_END.search(text)
+    if m:
+        text = text[:m.start()]
+    return text.strip("\n")
+
+
+def clean_chapter_body(body):
+    """去掉章内的站点署名行与章末人工注释块（〔1〕〔2〕…连续三条以上视为注释）。"""
+    lines = [l for l in body.splitlines() if not re.match(r"\s*Produced by", l)]
+    first, count = None, 0
+    for i, l in enumerate(lines):
+        if re.match(r"\s*〔\s*[０-９0-9]+\s*〕", l):
+            count += 1
+            if first is None:
+                first = i
+    if count >= 3 and first is not None:
+        lines = lines[:first]
+    return "\n".join(lines).strip()
+
+
+def split_chapters(text, max_chars=6000):
+    """按章节标题切分正文；找不到标题时按字数等分。返回 ([(title, body)], method)。"""
+    text = strip_boilerplate(text)
+    lines = text.splitlines()
+    starts = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s or len(s) > 40:
+            continue
+        s = re.sub(r"^[#>*\-\s]+", "", s)
+        if not s or len(s) > 40:
+            continue
+        if CHAPTER_RE.match(s) or EN_CHAPTER_RE.match(s):
+            starts.append((i, re.sub(r"[ \u3000]+", " ", s).strip()))
+    if not starts:
+        blocks, buf, total = [], [], 0
+        for line in lines:
+            buf.append(line)
+            total += len(line)
+            if total >= max_chars:
+                body = "\n".join(buf).strip()
+                if body:
+                    blocks.append(body)
+                buf, total = [], 0
+        body = "\n".join(buf).strip()
+        if body:
+            blocks.append(body)
+        return [("第 %d 段" % (i + 1), b) for i, b in enumerate(blocks)], "equal-split"
+    out = []
+    for k, (idx, title) in enumerate(starts):
+        end = starts[k + 1][0] if k + 1 < len(starts) else len(lines)
+        body = "\n".join(lines[idx:end])
+        if k == 0:
+            head = "\n".join(lines[:idx]).strip()
+            if head:
+                body = head + "\n\n" + body
+        body = clean_chapter_body(body)
+        # 正文里常把章题再印一遍，去掉与标题重复的行
+        norm = re.sub(r"[ \u3000]+", " ", title).strip()
+        keep = [l for l in body.splitlines()
+                if re.sub(r"[ \u3000]+", " ", l.strip()) != norm]
+        out.append((title, "\n".join(keep).strip()))
+    return out, "headings"
 
 
 def read_text(path):
@@ -1433,6 +1701,8 @@ def cmd_build(argv):
         desc = "overview（%d 框架 / %d 章 / %d 组概念 / %d 条规则）" % (
             len(ir.get("frameworks") or []), len(ir.get("chapterMap") or []),
             len(ir.get("conceptMap") or []), len(ir.get("decisionRules") or []))
+    elif mode == "reader":
+        desc = "reader（%d 章）" % len(ir.get("chapters") or [])
     else:
         n = len([s for s in (ir.get("sections") or []) if isinstance(s, dict)])
         desc = "%d sections" % n
@@ -1497,7 +1767,50 @@ def cmd_extract(argv):
     return EXIT_OK
 
 
-COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "extract": cmd_extract}
+def cmd_split(argv):
+    out = None
+    if "-o" in argv:
+        i = argv.index("-o")
+        if i + 1 >= len(argv):
+            return _fail_usage("-o 后面要跟输出目录")
+        out = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    if len(argv) != 1:
+        return _fail_usage("split 需要 1 个参数：<书文件> [-o 输出目录]")
+    src = argv[0]
+    try:
+        text, method = extract_book(src)
+    except MissingExtractor as exc:
+        return _fail_usage(str(exc))
+    except (IOError, OSError) as exc:
+        return _fail_usage("读不到 %s（%s）" % (src, exc))
+    except Exception as exc:
+        return _fail_usage("解析 %s 失败（%s）" % (src, exc))
+    chapters, split_method = split_chapters(text)
+    if out is None:
+        out = os.path.splitext(src)[0] + ".chapters"
+    if not os.path.isdir(out):
+        os.makedirs(out)
+    index = []
+    for i, (title, body) in enumerate(chapters, 1):
+        name = "ch-%02d.md" % i
+        path = os.path.join(out, name)
+        with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("# %s\n\n%s\n" % (title, body))
+        index.append({"n": i, "title": title, "chars": len(body), "file": name})
+    meta = {"source": os.path.abspath(src), "method": split_method,
+            "extract": method, "chars": len(text), "chapters": index}
+    with io.open(os.path.join(out, "index.json"), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(meta, fh, ensure_ascii=False, indent=2, sort_keys=True)
+        fh.write("\n")
+    sys.stdout.write("split: %d 章（%s）-> %s\n" % (len(chapters), split_method, out))
+    for row in index:
+        sys.stdout.write("  %s  %s（%d 字）\n" % (row["file"], row["title"], row["chars"]))
+    return EXIT_OK
+
+
+COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "extract": cmd_extract,
+            "split": cmd_split}
 
 
 def main(argv):
