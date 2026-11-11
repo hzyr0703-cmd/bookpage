@@ -66,7 +66,7 @@ python tests/selftest.py
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
 | A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（25,334 bytes） |
 | A8 | 金标准回归：两份样例 IR 产物哈希钉死 + 12 个组件标记齐备 | PASS（demo `be31060166…` / all `ad7ca851e5…`，12/12） |
-| A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖时 rc=2 并说明缺什么 | PASS（真实公版书 epub 46,157 字符 / 9 章） |
+| A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖或解析失败时 rc=2 并说明原因；本机同时有 pypdf+reportlab 时再跑一份真 PDF | PASS（公版书 epub 46,157 字符 / 9 章；真 PDF 3 章） |
 
 ## 视觉验证
 

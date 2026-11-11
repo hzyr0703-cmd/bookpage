@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 """A9：书源提取回归（docx / epub / 纯文本 / 缺依赖时的报错）。
 
+注意：这里用 -X utf8 而不是 -I —— -I 会连 PYTHONIOENCODING 一起忽略，
+子进程会退回 Windows 控制台编码（cp936），中文错误信息变成乱码。
+
 全部夹具在运行时生成，不落二进制文件；只用标准库（zipfile 造 docx 与 epub）。
 """
 
@@ -25,7 +28,7 @@ def run(args):
         if k.startswith("PYTHON"):
             env.pop(k)
     env["PYTHONIOENCODING"] = "utf-8"
-    proc = subprocess.run([PY, "-I", CLI] + args, capture_output=True, env=env, cwd=ROOT)
+    proc = subprocess.run([PY, "-X", "utf8", CLI] + args, capture_output=True, env=env, cwd=ROOT)
     out = proc.stdout.decode("utf-8", "replace") + proc.stderr.decode("utf-8", "replace")
     return proc.returncode, out
 
@@ -113,8 +116,37 @@ def main():
     pdf = os.path.join(TMP, "fake.pdf")
     open(pdf, "wb").write(b"%PDF-1.4\n%%EOF\n")
     rc, out = run(["extract", pdf, "-o", os.path.join(TMP, "pdf.txt")])
-    if rc != 2 or "pypdf" not in out:
-        fails.append("pdf 缺依赖时应 rc=2 且提示 pypdf，实际 rc=%d：%s" % (rc, out.strip()[:100]))
+    # 装了 pypdf 就报解析失败，没装就提示装 pypdf；两种都必须 rc=2 且有说明，不许静默产出空文本
+    if rc != 2 or not ("pypdf" in out or "解析" in out):
+        fails.append("pdf 损坏/缺依赖时应 rc=2 且有说明，实际 rc=%d：%s" % (rc, out.strip()[:100]))
+
+    # 可选强断言：本机同时有 pypdf + reportlab 时，造一份真 PDF 走通 pdf 分支
+    try:
+        import pypdf  # noqa: F401
+        from reportlab.pdfgen import canvas
+        has_pdf = True
+    except Exception:
+        has_pdf = False
+    if has_pdf:
+        pdf_real = os.path.join(TMP, "real.pdf")
+        c = canvas.Canvas(pdf_real, pagesize=(595, 842))
+        for i, head in enumerate(("Chapter 1  A", "Chapter 2  B", "Chapter 3  C"), 1):
+            c.setFont("Helvetica-Bold", 18)
+            c.drawString(72, 760, head)
+            c.setFont("Helvetica", 11)
+            c.drawString(72, 730, "Page %d body line." % i)
+            c.showPage()
+        c.save()
+        rc, out = run(["extract", pdf_real, "-o", os.path.join(TMP, "realpdf.txt")])
+        if rc != 0:
+            fails.append("真 PDF 提取失败 rc=%d：%s" % (rc, out.strip()[:100]))
+        else:
+            txt = open(os.path.join(TMP, "realpdf.txt"), encoding="utf-8").read()
+            if "Page 2 body line." not in txt:
+                fails.append("真 PDF 文本缺正文")
+            rc2, out2 = run(["chapters", os.path.join(TMP, "realpdf.txt")])
+            if "chapters: 3" not in out2:
+                fails.append("真 PDF 章节数不是 3：%s" % out2.strip()[:60])
 
     mobi = os.path.join(TMP, "fake.mobi")
     open(mobi, "wb").write(b"BOOKMOBI")
