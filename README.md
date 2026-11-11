@@ -41,6 +41,9 @@ python bookpage.py tokens tests/sample-book.md
 
 # 中文章节计数：第N章 / 第N回 / Chapter N
 python bookpage.py chapters tests/sample-book.md
+
+# 书源 → 纯文本：docx/epub 零依赖；pdf 需 pypdf；mobi/azw3 需 calibre
+python bookpage.py extract 某本书.epub -o full_text.txt
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。
@@ -51,7 +54,7 @@ python bookpage.py chapters tests/sample-book.md
 python tests/selftest.py
 ```
 
-八条断言全部可复跑，不依赖浏览器与 pip（A1–A7 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
+九条断言全部可复跑，不依赖浏览器与 pip（A1–A7、A9 跑 `tests/selftest.py`，A8 跑 `tests/test_golden.py`）：
 
 | 编号 | 断言 | 现状 |
 | --- | --- | --- |
@@ -63,6 +66,7 @@ python tests/selftest.py
 | A6 | 产物无 `{{`、tab↔panel 与 section 一一对齐、无外部引用（离线可开） | PASS |
 | A7 | 剥离 PYTHON* 变量 + `-I` 隔离下仍能构建 | PASS（25,334 bytes） |
 | A8 | 金标准回归：两份样例 IR 产物哈希钉死 + 12 个组件标记齐备 | PASS（demo `be31060166…` / all `ad7ca851e5…`，12/12） |
+| A9 | 书源提取：epub（按 spine 顺序）/docx（zipfile+XML）/纯文本，章节计数正确；pdf、mobi 缺依赖时 rc=2 并说明缺什么 | PASS（真实公版书 epub 46,157 字符 / 9 章） |
 
 ## 视觉验证
 
@@ -103,7 +107,11 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 
 `signature` 是枚举白名单，拼错即被 lint 拒绝 —— 这正是上游“让模型直接拼 DOM”的失败面。
 
-## 组件（10 个 + 1 个逃生口）
+书源侧补了 `extract`：`docx`、`epub` 用标准库直读（epub 按 OPF spine 顺序，不是按文件名字典序），
+`pdf` 需 `pypdf`、`mobi/azw3` 需 calibre —— 缺依赖时以退出码 2 明确说缺什么，不产出空文本。
+同一本公版书走 `.epub` 与 `.txt` 两条路径，字符数 46,157 vs 46,497、章节数均为 9。
+
+## 组件（12 个，含 `prose` 逃生口）
 
 | signature | data 必需键 | 交互 |
 | --- | --- | --- |
@@ -155,12 +163,13 @@ bookpage 把“拼 DOM”中不变的 90% 固化进渲染器，模型只产 IR�
 
 ```
 bookpage/
-├── bookpage.py            # 渲染器 + lint + tokens + chapters（单文件）
+├── bookpage.py            # 渲染器 + lint + tokens + chapters + extract（单文件）
 ├── demo.json              # 7 节示例 IR（《置身事内》房地产与地方财政）
 ├── out/demo.html          # 示例产物（离线单文件）
 ├── tests/
-│   ├── selftest.py        # A1–A7
+│   ├── selftest.py        # A1–A7 + A9
 │   ├── test_golden.py     # A8 金标准回归（哈希锁死 + 组件标记）
+│   ├── test_extract.py    # A9 书源提取回归（运行时生成 epub/docx 夹具）
 │   ├── golden.sha         # A8 钉住的哈希（改版后 --update 重钉）
 │   ├── all-components.json# prose / decision_tree / story_card / questions 补测
 │   └── sample-book.md     # 八章中文夹具

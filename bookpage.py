@@ -2,17 +2,21 @@
 # -*- coding: utf-8 -*-
 """bookpage 1.0 — 把结构化 IR 渲染成确定性单文件 HTML。
 
-零第三方依赖（仅 Python 标准库）。四个子命令：
-    python bookpage.py lint  <ir.json>
-    python bookpage.py build <ir.json> <out.html> [--degrade]
+零第三方依赖（仅 Python 标准库）。四类子命令：
+    python bookpage.py lint   <ir.json>
+    python bookpage.py build  <ir.json> <out.html> [--degrade]
     python bookpage.py tokens <file>
     python bookpage.py chapters <file>
+    python bookpage.py extract <book> [-o out.txt]   # docx/epub 走标准库；pdf 需 pypdf
 
 设计原则：同输入 → 字节级相同输出。不读时间、不生成 uuid、不依赖字典顺序、
 所有文本走同一条转义路径、换行与缩进固定。
 """
 
 import json
+import io
+from html.parser import HTMLParser
+import os
 import re
 import sys
 
@@ -918,6 +922,166 @@ def read_text(path):
     raise ValueError("无法解码为 UTF-8 或 GB18030：%s" % path)
 
 
+# ---------------------------------------------------------------- 书源提取
+TEXT_BOOK_EXT = {".txt", ".md", ".markdown", ".rst", ".adoc"}
+
+
+class MissingExtractor(Exception):
+    """缺少能解析该格式的依赖，或该格式不在支持列表内。"""
+
+
+def _normalize(text):
+    t = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip() + "\n"
+
+
+class _HTMLText(HTMLParser):
+    SKIP = ("script", "style", "head", "nav")
+
+    def __init__(self):
+        HTMLParser.__init__(self)
+        self.parts = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self._skip += 1
+        if tag in ("p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"):
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP and self._skip:
+            self._skip -= 1
+        if tag in ("p", "div", "li", "tr"):
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.parts.append(data)
+
+    def text(self):
+        return "".join(self.parts)
+
+
+def _html_to_text(raw):
+    p = _HTMLText()
+    p.feed(raw)
+    p.close()
+    return p.text()
+
+
+def _extract_docx(path):
+    import zipfile
+    import xml.etree.ElementTree as ET
+    with zipfile.ZipFile(path) as zf:
+        if "word/document.xml" not in zf.namelist():
+            raise ValueError("docx 里没有 word/document.xml")
+        root = ET.fromstring(zf.read("word/document.xml"))
+    parts = []
+    for el in root.iter():
+        tag = el.tag.split("}")[-1]
+        if tag == "p":
+            parts.append("\n")
+        elif tag == "t" and el.text:
+            parts.append(el.text)
+        elif tag == "tab":
+            parts.append(" ")
+        elif tag in ("br", "tr"):
+            parts.append("\n")
+    return "".join(parts)
+
+
+def _extract_epub(path):
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from urllib.parse import unquote
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        opf = None
+        if "META-INF/container.xml" in names:
+            root = ET.fromstring(zf.read("META-INF/container.xml"))
+            for el in root.iter():
+                if el.tag.split("}")[-1] == "rootfile" and el.get("full-path"):
+                    opf = el.get("full-path")
+                    break
+        if not opf:
+            cands = [n for n in names if n.lower().endswith(".opf")]
+            opf = cands[0] if cands else None
+        docs = []
+        if opf:
+            base = opf.rsplit("/", 1)[0] + "/" if "/" in opf else ""
+            oroot = ET.fromstring(zf.read(opf))
+            manifest = {}
+            spine = []
+            for el in oroot.iter():
+                tag = el.tag.split("}")[-1]
+                if tag == "item" and el.get("id") and el.get("href"):
+                    manifest[el.get("id")] = el.get("href")
+                elif tag == "itemref" and el.get("idref"):
+                    spine.append(el.get("idref"))
+            for idref in spine:
+                href = manifest.get(idref)
+                if not href:
+                    continue
+                name = base + unquote(href.split("#")[0])
+                if name in names and name.lower().endswith((".xhtml", ".html", ".htm", ".xml")):
+                    docs.append(name)
+        if not docs:
+            docs = sorted(n for n in names
+                          if n.lower().endswith((".xhtml", ".html", ".htm")))
+        chunks = []
+        for name in docs:
+            chunks.append(_html_to_text(zf.read(name).decode("utf-8", "replace")))
+    return "\n\n".join(chunks)
+
+
+def _extract_pdf(path):
+    PdfReader = None
+    for mod in ("pypdf", "PyPDF2"):
+        try:
+            PdfReader = __import__(mod, fromlist=["PdfReader"]).PdfReader
+            break
+        except Exception:
+            PdfReader = None
+    if PdfReader is None:
+        raise MissingExtractor(
+            "pdf 需要 pypdf（pip install pypdf），或装 poppler 后用 pdftotext；"
+            "bookpage 本身仍是零依赖，pdf 解析不属于零依赖路径")
+    reader = PdfReader(path)
+    return "\n\n".join((p.extract_text() or "") for p in reader.pages)
+
+
+def _extract_rtf(path):
+    raw = read_text(path)
+    t = re.sub(r"\\'([0-9a-fA-F]{2})",
+               lambda m: bytes([int(m.group(1), 16)]).decode("latin-1"), raw)
+    t = re.sub(r"\\u(-?[0-9]+)[?]?",
+               lambda m: chr(int(m.group(1)) % 65536), t)
+    t = re.sub(r"\{\\\*.*?\}", "", t, flags=re.S)
+    t = re.sub(r"\\[a-zA-Z]+(-?[0-9]+)?[ ]?", " ", t)
+    return t.replace("{", "").replace("}", "")
+
+
+def extract_book(path):
+    """返回 (纯文本, 格式名)。缺依赖时抛 MissingExtractor。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in TEXT_BOOK_EXT or ext == "":
+        return _normalize(read_text(path)), "text"
+    if ext == ".docx":
+        return _normalize(_extract_docx(path)), "docx"
+    if ext == ".epub":
+        return _normalize(_extract_epub(path)), "epub"
+    if ext == ".pdf":
+        return _normalize(_extract_pdf(path)), "pdf"
+    if ext == ".rtf":
+        return _normalize(_extract_rtf(path)), "rtf"
+    if ext in (".mobi", ".azw", ".azw3"):
+        raise MissingExtractor("mobi/azw3 需要 calibre 的 ebook-convert，本机未安装")
+    raise MissingExtractor("不支持的格式 %r（支持 txt/md/rst/adoc/docx/epub/rtf/pdf）" % ext)
+
+
 # ---------------------------------------------------------------- 命令
 USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
 
@@ -926,6 +1090,7 @@ USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
   python bookpage.py build <ir.json> <out.html> [--degrade]
   python bookpage.py tokens <file>
   python bookpage.py chapters <file>
+  python bookpage.py extract <book> [-o out.txt]
 
 退出码：0 成功 / 1 lint 有错 / 2 用法错误
 组件：%s
@@ -1031,7 +1196,36 @@ def cmd_chapters(argv):
     return EXIT_OK
 
 
-COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters}
+def cmd_extract(argv):
+    out = None
+    if "-o" in argv:
+        i = argv.index("-o")
+        if i + 1 >= len(argv):
+            return _fail_usage("-o 后面要跟输出路径")
+        out = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    if len(argv) != 1:
+        return _fail_usage("extract 需要 1 个参数：<书文件> [-o out.txt]")
+    src = argv[0]
+    try:
+        text, method = extract_book(src)
+    except MissingExtractor as exc:
+        return _fail_usage(str(exc))
+    except (IOError, OSError) as exc:
+        return _fail_usage("读不到 %s（%s）" % (src, exc))
+    except Exception as exc:  # 损坏的 docx/epub/pdf
+        return _fail_usage("解析 %s 失败（%s）" % (src, exc))
+    if out is None:
+        out = os.path.splitext(src)[0] + ".txt"
+    with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    sys.stdout.write("extracted: %s（%s）-> %s\n" % (src, method, out))
+    sys.stdout.write("  字符 %d / 章节 %d / 估算 tokens %d\n"
+                     % (len(text), count_chapters(text), estimate_tokens(text)))
+    return EXIT_OK
+
+
+COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "extract": cmd_extract}
 
 
 def main(argv):

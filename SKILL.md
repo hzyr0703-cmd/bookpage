@@ -27,7 +27,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 ① 拆书 → ② 只读当前章 → ③ 写 IR.json → ④ lint → ⑤ 按错误码改 → ⑥ build → ⑦ 自检
 ```
 
-1. **拆书**：复用 `book-to-webpage` 的 `scripts/extract.py`（产出 `full_text.txt` + `metadata.json`），或直接用 `book-to-skill` 的 `.kb/`。全书超 5 万 token 时**不要整本读**：先 grep 章节标题定位边界，只切当前章。
+1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
 2. **选题**：一个页面讲一个主题，选 4–7 节；每节一个组件；主题散布全书时先把相关章节列出来，再统一取用。
 3. **写 IR**：严格按下面的骨架。`signature` 只能取白名单值；字数上限先看契约表，别写完再被 lint 打回。
 4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
@@ -100,10 +100,13 @@ python bookpage.py build  ir.json out.html           # 渲染
 python bookpage.py build  ir.json out.html --degrade # 出错的节降级为 prose，产物留 <!-- degraded -->
 python bookpage.py tokens <文本文件>                 # 中文感知的 token 估算
 python bookpage.py chapters <文本文件>               # 中文章节计数（第N章/第N回/Chapter N）
-python tests/selftest.py                             # A1–A7 七条自检
+python bookpage.py extract <书> [-o out.txt]         # 书源 → 纯文本（docx/epub 零依赖，pdf 需 pypdf）
+python tests/selftest.py                             # A1–A7 + A9（书源提取）自检
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。
+
+提取格式：`txt/md/rst/adoc` 直读；`docx` 走 `zipfile` + `word/document.xml`；`epub` 走 `zipfile` + OPF spine（按书内顺序，不按文件名）；`rtf` 去控制字；`pdf` 需 `pip install pypdf`（bookpage 本体仍零依赖），`mobi/azw3` 需 calibre 的 `ebook-convert`，两者缺依赖时直接以退出码 2 说明缺什么，不静默产出空文本。
 
 ## 写作要求（衔接层仍是你的活）
 

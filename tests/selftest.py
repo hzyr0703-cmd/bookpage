@@ -175,6 +175,16 @@ def a7():
     return "%d bytes，-I 且剥离 PYTHON* 变量" % os.path.getsize(dst)
 
 
+def a9():
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    p = subprocess.run([sys.executable, os.path.join(HERE, "test_extract.py")],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", env=env)
+    assert p.returncode == 0, "A9 失败：%s" % (p.stdout + p.stderr).strip()[-200:]
+    return "epub/docx/纯文本提取 + 章节计数 + pdf/mobi 缺依赖报错"
+
+
 def main():
     check("A1", "同输入两次构建字节一致", a1)
     check("A2", "未知 signature 被拒并指出路径", a2)
@@ -183,6 +193,7 @@ def main():
     check("A5", "中文 token 估算不再低估 20 倍", a5)
     check("A6", "产物无占位符、tab↔panel 对齐、无外部引用", a6)
     check("A7", "干净环境零依赖直跑", a7)
+    check("A9", "书源提取：docx/epub/纯文本 + 缺依赖报错", a9)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
