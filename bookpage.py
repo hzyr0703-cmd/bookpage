@@ -229,6 +229,18 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .chap details{margin-top:10px}
 .chap details summary{cursor:pointer;font-size:13px;color:var(--red)}
 .chap details p{margin:8px 0 0;font-size:14.5px;line-height:1.95;color:var(--ink)}
+.digest{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:26px 0 6px}
+.dg{padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.dg .k{font-size:11.5px;letter-spacing:.1em;color:var(--red);display:block;margin-bottom:6px}
+.dg p{margin:0;font-size:14.5px;line-height:1.85;color:var(--ink)}
+.concepts{margin:20px 0 4px}
+.concepts h2{font-family:var(--font-display);font-size:19px;margin:0 0 8px}
+.cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.cc{padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-strong);text-decoration:none;display:block}
+.cc b{display:block;font-size:14.5px;color:var(--ink)}
+.cc span{display:block;margin-top:4px;font-size:12.5px;line-height:1.65;color:var(--ink-soft)}
+.cc em{display:block;margin-top:7px;font-size:11.5px;font-style:normal;color:var(--red)}
+.chap .role{font-size:13px;color:var(--ink-soft-2);margin:0 0 8px}
 @media (max-width:880px){.rgrid{grid-template-columns:1fr}.toc{position:static;max-height:none;display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px}.toc a{border:1px solid var(--line);border-radius:8px;padding:3px 10px}}
 """
 
@@ -834,6 +846,38 @@ def _v_overview(errs, ir):
 # ---------------------------------------------------------------- 速读模式校验
 def _v_reader(errs, ir):
     """reader 模式：按章排列的速读卡，章号必须递增且连续可读。"""
+    dg = ir.get("digest")
+    if dg is not None:
+        if not isinstance(dg, list):
+            errs.append(("E103", "digest", "期望 array，得到 %s" % _typename(dg)))
+        elif not (3 <= len(dg) <= 5):
+            errs.append(("E104", "digest", "%d 条，期望 3–5" % len(dg)))
+        else:
+            for j, t in enumerate(dg):
+                if not isinstance(t, str):
+                    errs.append(("E103", "digest[%d]" % j, "期望 string，得到 %s" % _typename(t)))
+                elif not (10 <= len(t) <= 60):
+                    errs.append(("E104", "digest[%d]" % j, "%d 字，期望 10–60" % len(t)))
+    cs = ir.get("concepts")
+    if cs is not None:
+        if not isinstance(cs, list):
+            errs.append(("E103", "concepts", "期望 array，得到 %s" % _typename(cs)))
+        elif not (2 <= len(cs) <= 6):
+            errs.append(("E104", "concepts", "%d 组，期望 2–6" % len(cs)))
+        else:
+            for j, c in enumerate(cs):
+                cp = "concepts[%d]" % j
+                if not isinstance(c, dict):
+                    errs.append(("E103", cp, "期望 object，得到 %s" % _typename(c)))
+                    continue
+                fv_str(errs, cp, c, "name", 1, 14)
+                fv_str(errs, cp, c, "gist", 10, 60)
+                ch = fv_list(errs, cp, c, "chapters", 1, 3)
+                if ch:
+                    for k, v in enumerate(ch):
+                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 99):
+                            errs.append(("E103", "%s.chapters[%d]" % (cp, k),
+                                         "期望 1–99 的整数，得到 %s" % _typename(v)))
     chs = ir.get("chapters")
     if not isinstance(chs, list):
         errs.append(("E103", "chapters", "期望 array，得到 %s" % _typename(chs)))
@@ -863,6 +907,7 @@ def _v_reader(errs, ir):
                     errs.append(("E103", "%s.points[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
                 elif not (1 <= len(t) <= 40):
                     errs.append(("E104", "%s.points[%d]" % (p, j), "%d 字，期望 1–40" % len(t)))
+        fv_str(errs, p, c, "role", 0, 34, required=False)
         fv_str(errs, p, c, "quote", 0, 90, required=False)
         fv_str(errs, p, c, "quote_from", 0, 12, required=False)
         tx = c.get("text")
@@ -1183,6 +1228,24 @@ def render_reader(ir):
     if hero.get("thesis"):
         out.append('<div class="thesis">%s</div>' % esc(hero["thesis"]))
     out.append("</header>")
+    dg = [t for t in (ir.get("digest") or []) if isinstance(t, str)]
+    if dg:
+        out.append('<section class="digest" aria-label="这本书在说什么">')
+        for i, t in enumerate(dg):
+            out.append('<div class="dg"><span class="k">%02d</span><p>%s</p></div>' % (i + 1, esc(t)))
+        out.append("</section>")
+    cs = [c for c in (ir.get("concepts") or []) if isinstance(c, dict)]
+    if cs:
+        out.append('<section class="concepts" aria-label="关键概念">')
+        out.append("<h2>关键概念</h2>")
+        out.append('<div class="cg">')
+        for c in cs:
+            nums = [str(x) for x in (c.get("chapters") or []) if isinstance(x, int)]
+            first = nums[0] if nums else "1"
+            out.append('<a class="cc" href="#ch-%s"><b>%s</b><span>%s</span><em>第 %s 章</em></a>'
+                       % (esc(first), esc(c.get("name") or ""), esc(c.get("gist") or ""),
+                          esc("、".join(nums))))
+        out.append("</div></section>")
     out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="搜章节 / 关键词，例如：财政" aria-label="搜索章节"><span id="rCount"></span></div>')
     out.append('<div class="rgrid">')
     out.append('<nav class="toc" aria-label="章节目录">')
@@ -1193,7 +1256,7 @@ def render_reader(ir):
     out.append("<div>")
     for c in chs:
         n = str(c.get("n", ""))
-        parts = [c.get("title") or "", c.get("gist") or ""]
+        parts = [c.get("title") or "", c.get("role") or "", c.get("gist") or ""]
         parts.extend([p for p in (c.get("points") or []) if isinstance(p, str)])
         if c.get("quote"):
             parts.append(c["quote"])
@@ -1202,6 +1265,8 @@ def render_reader(ir):
         out.append('<article class="chap" id="ch-%s" data-search="%s">' % (esc(n), search))
         out.append('<div class="n">%s</div>' % esc(n))
         out.append("<h2>%s</h2>" % esc(c.get("title") or ""))
+        if c.get("role"):
+            out.append('<p class="role">%s</p>' % esc(c["role"]))
         out.append('<p class="gist">%s</p>' % esc(c.get("gist") or ""))
         pts = [p for p in (c.get("points") or []) if isinstance(p, str)]
         if pts:

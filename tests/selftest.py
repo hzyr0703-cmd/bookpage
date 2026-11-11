@@ -249,6 +249,8 @@ def a11():
     assert 'class="toc"' in html and 'id="rFilter"' in html, "reader 缺目录或搜索框"
     ir = read_json(rd)
     assert html.count('class="chap"') == len(ir["chapters"]), "章节卡数量与 IR 不符"
+    assert 'class="digest"' in html and html.count('class="dg"') == len(ir["digest"]), "缺全书摘要块或条数不符"
+    assert 'class="cc"' in html and html.count('class="cc"') == len(ir["concepts"]), "缺关键概念块或组数不符"
     assert "{{" not in html and "http://" not in html, "reader 含占位符或外部引用"
     plain = os.path.join(tmp, "no-heading.txt")
     with open(plain, "w", encoding="utf-8", newline="\n") as fh:
