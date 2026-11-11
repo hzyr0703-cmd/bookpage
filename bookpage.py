@@ -2087,6 +2087,8 @@ USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
   python bookpage.py split   <book> [-o dir]
   python bookpage.py render  <file.pdf> [-o dir] [--dpi 180] [--pages 1-8]
   python bookpage.py shelf   [dir ...] [-o index.html]
+  python bookpage.py outline <书稿> [-o 文件] [--per 4]
+  python bookpage.py draft   <书稿> [-o 包.md] [--per 6] [--chapter N]
 
 退出码：0 成功 / 1 校验有错 / 2 用法错误
 组件：%s
@@ -2125,6 +2127,10 @@ def cmd_lint(argv):
                          % (len(ir.get("frameworks") or []), len(ir.get("chapterMap") or []),
                             len(ir.get("conceptMap") or []), len(ir.get("decisionRules") or []),
                             len(ir.get("questions") or [])))
+    elif mode == "reader":
+        sys.stdout.write("lint: OK（reader：%d 章 / %d 条判断 / %d 组概念 / %d 个问题）\n"
+                         % (len(ir.get("chapters") or []), len(ir.get("digest") or []),
+                            len(ir.get("concepts") or []), len(ir.get("questions") or [])))
     else:
         sys.stdout.write("lint: OK（%d 个 section）\n" % len(ir.get("sections") or []))
     return EXIT_OK
@@ -2370,6 +2376,104 @@ def outline_book(text, chapters, per=4):
     return "\n".join(lines) + "\n"
 
 
+def _clip(text, n):
+    """按句读边界截断，不把句子砍半（砍半的引文会被 verify 之外的读者当成残句）。"""
+    if len(text) <= n:
+        return text
+    cut = text[:n]
+    m = list(re.finditer(r"[，。；！？：、」』”]", cut))
+    if m and m[-1].end() > n // 2:
+        return cut[:m[-1].end()]
+    return cut
+
+
+def draft_pack(text, chapters, per=6, head=70, lead=14):
+    """给"模型写 IR"用的上下文包：每章只留脉络，不留全文。
+
+    每条目都设计成能被 verify 认账：章题、段首、引号句都直接取自原文片段，
+    模型若照抄不会失真；若自己改写，verify 会报 E301/E302。
+    """
+    lines = ["# 起草包（只含脉络，不含全文）", "",
+             "共 %d 章 / %d 字。写 IR 时只用本文件，不要回读全文。" % (len(chapters), len(text)),
+             "纪律：quote 与 text 必须逐字取自原文（本包里的句子可直接用），改写会被 verify 报错。",
+             ""]
+    for idx, (title, body) in enumerate(chapters, 1):
+        body = "\n".join(x for x in body.split("\n")
+                         if x.strip() and not x.strip().startswith("#"))
+        paras = [p.strip() for p in body.split("\n") if p.strip()]
+        lines.append("## 第 %d 章 %s（%d 字 / %d 段）" % (idx, title, len(body), len(paras)))
+        sents = [x for x in _sentence_split(body) if len(x) >= 8]
+        if sents:
+            lines.append("- 首句：%s" % _clip(sents[0], head))
+            if len(sents) > 1:
+                lines.append("- 末句：%s" % _clip(sents[-1], head))
+        if len(paras) >= 4:
+            lines.append("- 骨架（每段起头）：")
+            for p in paras:
+                g = re.sub(r"[ \u3000]+", " ", p).strip()
+                lines.append("  · %s…" % g[:lead])
+        else:
+            lines.append("- 骨架（无分段，按句抽样）：")
+            ss = [x for x in _sentence_split(body) if len(x) >= 6]
+            if ss:
+                step = max(1, len(ss) // 8)
+                for k in range(0, len(ss), step):
+                    lines.append("  · %s…" % _clip(re.sub(r"[ \u3000]+", " ", ss[k]).strip(), lead + 6))
+        quotes = QUOTE_MARK.findall(body)[:per]
+        if quotes:
+            for q in quotes:
+                lines.append("- 书内引号句：%s" % _clip(q, head * 2))
+        else:
+            lines.append("- 书内引号句：无（未加引号的书，quote 请从首/末句或骨架句里取连续的原文片段）")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_draft(argv):
+    """draft <书稿> [-o 文件名] [--per N] [--chapter N]"""
+    out = None
+    per = 6
+    only = None
+    src = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "-o":
+            i += 1
+            out = argv[i]
+        elif a == "--per":
+            i += 1
+            per = int(argv[i])
+        elif a == "--chapter":
+            i += 1
+            only = int(argv[i])
+        elif a in ("--help", "-h"):
+            print("用法：draft <书稿> [-o 文件名] [--per 6] [--chapter N]", file=sys.stderr)
+            return EXIT_USAGE
+        elif not a.startswith("-") and src is None:
+            src = a
+        i += 1
+    if not src:
+        print("ERROR: draft 需要一份书稿。用法：draft <书稿> [-o 文件名]", file=sys.stderr)
+        return EXIT_USAGE
+    text = strip_boilerplate(read_text(src))
+    chapters, method = split_chapters(text, max_chars=6000)
+    if only is not None:
+        if only < 1 or only > len(chapters):
+            print("ERROR: --chapter 超出范围（共 %d 章）" % len(chapters), file=sys.stderr)
+            return EXIT_USAGE
+        chapters = [chapters[only - 1]]
+    md = draft_pack(text, chapters, per=per)
+    if out:
+        with open(out, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(md)
+        print("draft: %d 章 / 切分方式 %s / %d 字 -> %s"
+              % (len(chapters), method, len(md), out))
+    else:
+        sys.stdout.write(md)
+    return EXIT_OK
+
+
 def cmd_outline(argv):
     """outline <书稿> [-o 文件名] [--top N] [--per N]"""
     out = None
@@ -2408,7 +2512,7 @@ def cmd_outline(argv):
     return EXIT_OK
 
 
-COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "outline": cmd_outline,
+COMMANDS = {"lint": cmd_lint, "build": cmd_build, "tokens": cmd_tokens, "chapters": cmd_chapters, "outline": cmd_outline, "draft": cmd_draft,
             "extract": cmd_extract, "split": cmd_split, "verify": cmd_verify, "render": cmd_render,
             "shelf": cmd_shelf}
 

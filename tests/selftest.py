@@ -436,6 +436,36 @@ def a16():
     return "8 章候选，两次同哈希，长度 %d/%d" % (len(md), len(src))
 
 
+def a17():
+    """A17：draft 起草包只含原文片段，且两次一致、显著短于原文。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a17-")
+    o1 = os.path.join(tmp, "d1.md")
+    o2 = os.path.join(tmp, "d2.md")
+    p1 = run(["draft", BOOK, "-o", o1])
+    p2 = run(["draft", BOOK, "-o", o2])
+    assert p1.returncode == 0 and p2.returncode == 0, "draft 失败：%s" % (p1.stdout + p1.stderr)
+    assert sha256(o1) == sha256(o2), "draft 两次输出不一致"
+    md = open(o1, encoding="utf-8").read()
+    src = open(BOOK, encoding="utf-8").read()
+    assert md.count("## 第") == 8, "章节数与样书 8 章不符：%d" % md.count("## 第")
+    # 样书是 8 个短章，每章固定开销（标题/首末句/6 条抽样/6 条引号）占比高；
+    # 真书上这个比值是 22%（庄子）～28%（阿Q），见 README。
+    assert len(md) < len(src) * 0.85, "起草包没有比原文明显更短：%d vs %d" % (len(md), len(src))
+    # 包里的每一句都必须能在原文里逐字找到（否则模型抄下来就会被 verify 判造假）
+    norm = lambda t: re.sub(r"[ \u3000]+", " ", t).strip()
+    src_norm = norm(src)
+    checked = 0
+    for line in md.split("\n"):
+        line = line.strip()
+        if line.startswith("· "):
+            seg = norm(line[2:].rstrip("…"))
+            assert seg and seg in src_norm, "包里的句子不是原文片段：%s" % seg
+            checked += 1
+    assert checked >= 20, "抽样句太少，包信息量不足：%d" % checked
+    assert "{{" not in md, "起草包含占位符"
+    return "8 章 / %d 句全部逐字命中原文 / 长度 %d/%d" % (checked, len(md), len(src))
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -453,6 +483,7 @@ def main():
     check("A14", "render：文本层判定 + 分页渲染", a14)
     check("A15", "shelf：同目录 IR 收成一页", a15)
     check("A16", "outline：只交可验证信号，两次一致", a16)
+    check("A17", "draft：起草包只含原文片段，两次一致", a17)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

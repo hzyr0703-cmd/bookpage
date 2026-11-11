@@ -28,7 +28,8 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 ```
 
 1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`，再 `python bookpage.py split full_text.txt -o chapters/` 按章切开（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
-   拆完立刻跑 `python bookpage.py outline 书稿.txt -o 候选.md`：每章只给**首句 / 末句 / 书里自带引号的句子**，这些句子 `verify` 一定认，写 `quote` 字段时直接从里面挑，不必回读整章。
+   拆完先跑 `python bookpage.py draft 书稿.txt -o 起草包.md`：每章只给**章题、字数、首句、末句、按句抽样的骨架、书内引号句**（真书上约原文的 22%–28%），包里的句子都是原文片段，直接抄进 `quote`/`text` 就能过 `verify`。需要引文候选时再跑 `python bookpage.py outline 书稿.txt -o 候选.md`。
+   写 `text` 段时优先用起草包里的原句，不要自己改写——`verify` 只认逐字一致的片段。
 2. **选题**：一个页面讲一个主题，选 4–7 节；每节一个组件；主题散布全书时先把相关章节列出来，再统一取用。
 3. **写 IR**：严格按下面的骨架。`signature` 只能取白名单值；字数上限先看契约表，别写完再被 lint 打回。
 4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
@@ -36,11 +37,12 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 6. **build**：`python bookpage.py build ir.json out.html`。
 7. **verify**：`python bookpage.py verify ir.json --source 书稿.txt` —— 逐条确认引文、原文片段、章题真的出自书稿（`E301` 引文 / `E302` 片段 / `E303` 章题），并打印覆盖率；产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
 
-## 四条辅助命令
+## 五条辅助命令
 
 | 命令 | 干什么 | 什么时候用 |
 | --- | --- | --- |
 | `outline <书稿> [-o 候选.md]` | 每章首句/末句/书内引号句，供写 IR 时挑引文 | 拆完书先跑，省掉逐章回读 |
+| `draft <书稿> [-o 包.md] [--per 6] [--chapter N]` | 每章脉络：章题 / 字数 / 首句 / 末句 / 按句抽样骨架 / 书内引号句，全部取自原文 | 写 IR 前跑一次；真书上只有原文的 22%–28%，回读全文的替代品 |
 | `verify <ir.json> --source <书稿.txt>` | 引文/原文片段/章题是否真在书稿里 + 覆盖率 | **每本书都要跑**。它抓的是"凭记忆编原文"这类最难自查的错误；扫描书没有文本源，只能跳过并在这里说明 |
 | `render <file.pdf> [-o dir] [--dpi 180] [--pages 1-8]` | 抽样 5 页判文本层，把指定页渲成 PNG，并打印「书版页码 = 物理页 - 前置页数」 | 拿到 PDF 先跑一次：有文本层走 `extract`，没有就走"渲染 + 看图转录" |
 | `shelf [dir ...] [-o index.html]` | 把一个目录里的 IR 收成一页书架，已构建的给链接，没构建的标「未构建」 | 交付多本书时，给用户一个入口，而不是让他自己找文件 |
