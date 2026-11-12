@@ -69,7 +69,8 @@ def main():
             "text": texts,
         }
         # validate
-        assert len(title) <= 24, (n, "title too long", len(title))
+        assert len(short) <= 24, (n, "title too long", len(short))
+        assert len(full) <= 40, (n, "srcTitle", len(full))
         assert len(s["role"]) <= 34, (n, "role", len(s["role"]))
         assert 10 <= len(s["gist"]) <= 70, (n, "gist", len(s["gist"]))
         assert 2 <= len(s["points"]) <= 4, (n, "points")

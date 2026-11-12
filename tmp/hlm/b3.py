@@ -13,7 +13,8 @@ def main():
         n = s['n']
         raw = io.open('tmp/hlm/ch/' + s['file'], encoding='utf-8').read()
         body = raw.split('\n')
-        title = body[0].lstrip('#').strip()
+        src = body[0].lstrip('#').strip()
+        title = src[:24].strip()
         q = s['quote']
         paras = []
         for i in s['text_lines']:
@@ -27,8 +28,8 @@ def main():
             errs.append('%d quote not substring' % n)
         if len(q) > 90:
             errs.append('%d quote len %d' % (n, len(q)))
-        if len(title) > 24:
-            errs.append('%d title len %d: %s' % (n, len(title), title))
+        if len(src) > 40:
+            errs.append('%d srcTitle len %d' % (n, len(src)))
         if len(s['role']) > 34:
             errs.append('%d role len %d' % (n, len(s['role'])))
         if not (10 <= len(s['gist']) <= 70):
@@ -40,7 +41,7 @@ def main():
                 errs.append('%d point len %d' % (n, len(p)))
         if len(s['quote_from']) > 12:
             errs.append('%d quote_from len %d' % (n, len(s['quote_from'])))
-        rec = {'n': n, 'title': title, 'role': s['role'], 'gist': s['gist'],
+        rec = {'n': n, 'title': title, 'srcTitle': src, 'role': s['role'], 'gist': s['gist'],
                'points': s['points'], 'quote': q, 'quote_from': s['quote_from'],
                'text': paras}
         recs.append(rec)

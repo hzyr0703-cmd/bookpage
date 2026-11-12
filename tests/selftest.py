@@ -679,6 +679,28 @@ def a22():
     assert bp.clean_heading("第一回（2）校注字样") == "第一回校注字样", "圆括号序号没清理"
     assert bp.clean_heading("第一○一回 散花寺神签惊异兆") == "第一○一回 散花寺神签惊异兆", "○ 编号被改坏"
 
+    # 重切同一个目录：章节数变少时必须清掉上一次留下的 ch-*.md，否则外部程序按文件名会读到错位的章
+    td = tempfile.mkdtemp(prefix="bp-split-"
+)
+    try:
+        first = "\n\n".join("第%d章 章题%d\n\n" % (i, i) +
+                            "这一章的正文足够长，用来验证切分与目录清理。" * 2 for i in range(1, 6))
+        second = "\n\n".join("第%d章 章题%d\n\n" % (i, i) +
+                             "短一点的正文，但仍然长于目录条目的判定下限。" * 2 for i in range(1, 4))
+        f1 = os.path.join(td, "a.txt"); f2 = os.path.join(td, "b.txt")
+        with open(f1, "w", encoding="utf-8") as fh:
+            fh.write(first)
+        with open(f2, "w", encoding="utf-8") as fh:
+            fh.write(second)
+        out = os.path.join(td, "ch")
+        r1 = run(["split", f1, "-o", out]); assert r1.returncode == 0, r1.stdout + r1.stderr
+        assert len([f for f in os.listdir(out) if f.endswith(".md")]) == 5, "第一次切分文件数不对"
+        r2 = run(["split", f2, "-o", out]); assert r2.returncode == 0, r2.stdout + r2.stderr
+        left = sorted(f for f in os.listdir(out) if f.endswith(".md"))
+        assert left == ["ch-01.md", "ch-02.md", "ch-03.md"], "旧 ch-*.md 没被清掉：%s" % left
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
 
 def main():
 

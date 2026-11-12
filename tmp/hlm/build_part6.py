@@ -2,7 +2,7 @@
 """Build part-6.json from spec6/*.json + p6/ch-N.md (canonical 101-120 text)."""
 import io, json, os, re, sys
 
-SRC = 'p6'
+SRC = 'ch'
 SPEC = 'spec6'
 OUT = 'part-6.json'
 MARK = re.compile(r'^(\[\d+\]|〔[一二三四五六七八九十百]+〕|注\s|校注)')
@@ -65,6 +65,10 @@ def clean_title(t):
     return re.sub(r'\s+', ' ', t).strip()
 
 
+def full_title(t):
+    return re.sub(r'\s+', ' ', re.sub(r'\[\d+\]|〔[一二三四五六七八九十百]+〕', '', t)).strip()
+
+
 def main():
     only = [int(x) for x in sys.argv[1:]] if len(sys.argv) > 1 else None
     cards = []
@@ -79,7 +83,10 @@ def main():
         errors = []
         t = clean_title(title)
         if len(t) > 24:
-            errors.append('title>24 (%d)' % len(t))
+            t = t[:24].rstrip()
+        src = full_title(title)
+        if len(src) > 40:
+            errors.append('srcTitle>40 (%d)' % len(src))
         role, gist = spec['role'], spec['gist']
         if len(role) > 34:
             errors.append('role>34 (%d)' % len(role))
@@ -115,7 +122,7 @@ def main():
             print('FAIL %d: %s' % (n, '; '.join(errors)))
             for e in errors:
                 print('   ', e)
-        cards.append({'n': n, 'title': t, 'role': role, 'gist': gist,
+        cards.append({'n': n, 'title': t, 'srcTitle': src, 'role': role, 'gist': gist,
                       'points': spec['points'], 'quote': q,
                       'quote_from': spec['quote_from'], 'text': texts})
         if errors:
@@ -128,4 +135,5 @@ def main():
         print('ok cards=%d bytes=%d' % (len(back), os.path.getsize(OUT)))
 
 
-main()
+if __name__ == '__main__':
+    main()
