@@ -223,6 +223,11 @@ details.dt-node[open] summary::before{content:"▾"}
 .toc{position:sticky;top:60px;align-self:start;max-height:calc(100vh - 90px);overflow:auto;font-size:13.5px;line-height:1.85}
 .toc a{display:block;color:var(--ink-soft);text-decoration:none;padding:2px 0}
 .toc a:hover{color:var(--ink);text-decoration:underline}
+.toc .tp{font-weight:600;color:var(--ink);margin-top:10px;border-bottom:1px solid var(--line)}
+.toc .toc-ch{padding-left:10px}
+.part{margin:0 0 26px}
+.part .ptitle{font-size:13px;letter-spacing:.08em;color:var(--muted);margin:22px 0 10px;padding-top:16px;border-top:1px solid var(--line)}
+.part .pgist{font-size:13.5px;color:var(--ink-soft);margin:-4px 0 14px}
 .chap{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px;scroll-margin-top:70px}
 .chap .n{font-size:12px;letter-spacing:.08em;color:var(--red)}
 .chap h2{margin:2px 0 6px;font-size:18px;line-height:1.45}
@@ -890,9 +895,9 @@ def _v_reader(errs, ir):
                         elif not (1 <= len(refs) <= 3):
                             errs.append(("E104", "digest[%d].refs" % j,
                                          "%d 个，期望 1–3" % len(refs)))
-                        elif not all(isinstance(x, int) and 1 <= x <= 40 for x in refs):
+                        elif not all(isinstance(x, int) and 1 <= x <= 120 for x in refs):
                             errs.append(("E104", "digest[%d].refs" % j,
-                                         "章号须为 1–40 的整数"))
+                                         "章号须为 1–120 的整数"))
     cs = ir.get("concepts")
     if cs is not None:
         if not isinstance(cs, list):
@@ -910,9 +915,9 @@ def _v_reader(errs, ir):
                 ch = fv_list(errs, cp, c, "chapters", 1, 3)
                 if ch:
                     for k, v in enumerate(ch):
-                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 99):
+                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 120):
                             errs.append(("E103", "%s.chapters[%d]" % (cp, k),
-                                         "期望 1–99 的整数，得到 %s" % _typename(v)))
+                                         "期望 1–120 的整数，得到 %s" % _typename(v)))
     th = ir.get("thread")
     if th is not None:
         if not isinstance(th, list):
@@ -930,15 +935,15 @@ def _v_reader(errs, ir):
                 ch = fv_list(errs, sp, st, "chapters", 1, 2)
                 if ch:
                     for k, v in enumerate(ch):
-                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 40):
+                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 120):
                             errs.append(("E103", "%s.chapters[%d]" % (sp, k),
-                                         "期望 1–40 的整数，得到 %s" % _typename(v)))
+                                         "期望 1–120 的整数，得到 %s" % _typename(v)))
     chs = ir.get("chapters")
     if not isinstance(chs, list):
         errs.append(("E103", "chapters", "期望 array，得到 %s" % _typename(chs)))
         return
-    if not (3 <= len(chs) <= 40):
-        errs.append(("E104", "chapters", "%d 章，期望 3–40" % len(chs)))
+    if not (3 <= len(chs) <= 120):
+        errs.append(("E104", "chapters", "%d 章，期望 3–120" % len(chs)))
         return
     prev = 0
     for i, c in enumerate(chs):
@@ -947,8 +952,8 @@ def _v_reader(errs, ir):
             errs.append(("E103", p, "期望 object，得到 %s" % _typename(c)))
             continue
         n = c.get("n")
-        if not isinstance(n, int) or isinstance(n, bool) or not (1 <= n <= 99):
-            errs.append(("E103", p + ".n", "期望 1–99 的整数，得到 %s" % _typename(n)))
+        if not isinstance(n, int) or isinstance(n, bool) or not (1 <= n <= 120):
+            errs.append(("E103", p + ".n", "期望 1–120 的整数，得到 %s" % _typename(n)))
         elif n <= prev:
             errs.append(("E104", p + ".n", "章号需递增（前一个是 %d）" % prev))
         else:
@@ -978,6 +983,36 @@ def _v_reader(errs, ir):
                         errs.append(("E103", "%s.text[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
                     elif not (1 <= len(t) <= 400):
                         errs.append(("E104", "%s.text[%d]" % (p, j), "%d 字，期望 1–400" % len(t)))
+
+    parts = ir.get("parts")
+    if parts is not None:
+        if not isinstance(parts, list):
+            errs.append(("E103", "parts", "期望 array，得到 %s" % _typename(parts)))
+        elif not (2 <= len(parts) <= 12):
+            errs.append(("E104", "parts", "%d 组，期望 2–12" % len(parts)))
+        else:
+            seq = []
+            for j, pt in enumerate(parts):
+                pp = "parts[%d]" % j
+                if not isinstance(pt, dict):
+                    errs.append(("E103", pp, "期望 object，得到 %s" % _typename(pt)))
+                    continue
+                fv_str(errs, pp, pt, "title", 1, 14)
+                fv_str(errs, pp, pt, "gist", 0, 40, required=False)
+                pl = fv_list(errs, pp, pt, "chapters", 1, 30)
+                if pl:
+                    for k, v in enumerate(pl):
+                        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 120):
+                            errs.append(("E103", "%s.chapters[%d]" % (pp, k),
+                                         "期望 1–120 的整数，得到 %s" % _typename(v)))
+                        else:
+                            seq.append(v)
+            nums = [c.get("n") for c in chs if isinstance(c.get("n"), int)]
+            if seq and nums and seq != nums:
+                errs.append(("E104", "parts", "分组须按章号顺序完整覆盖全书，且章号不重复"))
+    elif len(chs) > 40:
+        errs.append(("E104", "chapters", "%d 章超过 40，长书需用 parts[] 分组（2–12 组）" % len(chs)))
+
 
 
 # ---------------------------------------------------------------- 顶层校验
@@ -1235,11 +1270,24 @@ READER_JS = """(function () {
   function apply() {
     var q = (box.value || "").trim().toLowerCase();
     var shown = 0;
-    cards.forEach(function (c, i) {
+    cards.forEach(function (c) {
       var hit = !q || (c.getAttribute("data-search") || "").toLowerCase().indexOf(q) >= 0;
       c.style.display = hit ? "" : "none";
-      if (links[i]) links[i].style.display = hit ? "" : "none";
       if (hit) shown++;
+    });
+    links.forEach(function (a) {
+      var href = a.getAttribute("href") || "";
+      if (href.indexOf("#ch-") !== 0) return;
+      var el = document.getElementById(href.slice(1));
+      a.style.display = (el && el.style.display === "none") ? "none" : "";
+    });
+    Array.prototype.slice.call(document.querySelectorAll(".part")).forEach(function (sec) {
+      var vis = Array.prototype.slice.call(sec.querySelectorAll(".chap")).some(function (c) {
+        return c.style.display !== "none";
+      });
+      sec.style.display = vis ? "" : "none";
+      var head = document.querySelector('.toc a[href="#' + sec.id + '"]');
+      if (head && q) head.style.display = vis ? "" : "none";
     });
     if (cnt) cnt.textContent = "显示 " + shown + " / " + cards.length + " 章";
   }
@@ -1362,21 +1410,20 @@ def render_reader(ir):
     if ir.get("concepts"):
         hint = "搜章节 / 关键词，例如：" + str(ir["concepts"][0].get("name") or "")
     out.append('<div class="rbar"><input id="rFilter" type="search" placeholder="%s" aria-label="搜索章节"><span id="rCount"></span><span id="rRead"></span></div>' % esc(hint))
-    out.append('<div class="rgrid">')
-    out.append('<nav class="toc" aria-label="章节目录">')
+    parts = [x for x in (ir.get("parts") or []) if isinstance(x, dict)]
+    by_n = {}
     for c in chs:
-        n = c.get("n", "")
-        out.append('<a href="#ch-%s">%s · %s</a>' % (esc(str(n)), esc(str(n)), esc(c.get("title") or "")))
-    out.append("</nav>")
-    out.append("<div>")
-    for c in chs:
+        if isinstance(c.get("n"), int):
+            by_n[c["n"]] = c
+
+    def emit_card(c):
         n = str(c.get("n", ""))
-        parts = [c.get("title") or "", c.get("role") or "", c.get("gist") or ""]
-        parts.extend([p for p in (c.get("points") or []) if isinstance(p, str)])
+        parts_txt = [c.get("title") or "", c.get("role") or "", c.get("gist") or ""]
+        parts_txt.extend([x for x in (c.get("points") or []) if isinstance(x, str)])
         if c.get("quote"):
-            parts.append(c["quote"])
-        parts.extend([t for t in (c.get("text") or []) if isinstance(t, str)])
-        search = esc(" ".join(parts))
+            parts_txt.append(c["quote"])
+        parts_txt.extend([x for x in (c.get("text") or []) if isinstance(x, str)])
+        search = esc(" ".join(parts_txt))
         out.append('<article class="chap" id="ch-%s" data-search="%s">' % (esc(n), search))
         out.append('<button class="mark" type="button" data-n="%s" aria-pressed="false">标为读完</button>' % esc(n))
         out.append('<div class="n">%s</div>' % esc(n))
@@ -1384,7 +1431,7 @@ def render_reader(ir):
         if c.get("role"):
             out.append('<p class="role">%s</p>' % esc(c["role"]))
         out.append('<p class="gist">%s</p>' % esc(c.get("gist") or ""))
-        pts = [p for p in (c.get("points") or []) if isinstance(p, str)]
+        pts = [x for x in (c.get("points") or []) if isinstance(x, str)]
         if pts:
             out.append("<ul>")
             for t in pts:
@@ -1395,13 +1442,47 @@ def render_reader(ir):
             if c.get("quote_from"):
                 out.append("<cite>%s</cite>" % esc(c["quote_from"]))
             out.append("</blockquote>")
-        tx = [t for t in (c.get("text") or []) if isinstance(t, str)]
+        tx = [x for x in (c.get("text") or []) if isinstance(x, str)]
         if tx:
             out.append("<details><summary>读原文（%d 段）</summary>" % len(tx))
             for t in tx:
                 out.append("<p>%s</p>" % esc(t))
             out.append("</details>")
         out.append("</article>")
+
+    out.append('<div class="rgrid">')
+    out.append('<nav class="toc" aria-label="章节目录">')
+    if parts:
+        for pi, pt in enumerate(parts):
+            out.append('<a class="tp" href="#pt-%d">%s</a>' % (pi + 1, esc(pt.get("title") or "")))
+            for n in (pt.get("chapters") or []):
+                c = by_n.get(n)
+                if c is None:
+                    continue
+                out.append('<a class="toc-ch" href="#ch-%s">%s · %s</a>'
+                           % (esc(str(n)), esc(str(n)), esc(c.get("title") or "")))
+    else:
+        for c in chs:
+            n = c.get("n", "")
+            out.append('<a href="#ch-%s">%s · %s</a>' % (esc(str(n)), esc(str(n)), esc(c.get("title") or "")))
+    out.append("</nav>")
+    out.append("<div>")
+    if parts:
+        for pi, pt in enumerate(parts):
+            out.append('<section class="part" id="pt-%d">' % (pi + 1))
+            out.append('<h3 class="ptitle">%s</h3>' % esc(pt.get("title") or ""))
+            if pt.get("gist"):
+                out.append('<p class="pgist">%s</p>' % esc(pt["gist"]))
+            for n in (pt.get("chapters") or []):
+                c = by_n.get(n)
+                if c is not None:
+                    emit_card(c)
+            out.append("</section>")
+    else:
+        for c in chs:
+            emit_card(c)
+    out.append("</div>")
+    out.append("</div>")
     out.append("</div>")
     out.append("</div>")
     foot = " · ".join([x for x in (book, meta.get("author")) if x])
@@ -2084,6 +2165,13 @@ h1{font-size:34px;margin:0 0 10px}
 .a{color:#8a7f70;font-size:13px;margin:0 0 12px}
 .m{font-size:12px;color:#9a8f80;border-top:1px dashed #e6ddcc;padding-top:10px;display:flex;justify-content:space-between}
 .empty{color:#9a8f80}
+.bk{margin:0 0 26px;padding-bottom:20px;border-bottom:1px solid #efe6d6}
+.bk h2{font-size:22px;margin:0 0 4px}
+.bk .au{color:#8a7f70;font-size:13px;margin:0 0 12px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-block;font-size:13px;padding:6px 12px;border:1px solid #e6ddcc;border-radius:99px;background:#fffdf8;color:#2b2b2b;text-decoration:none}
+.chip:hover{border-color:#c9b899}
+.chip.off{color:#b5aa99;background:#fbf7ef}
 footer{margin-top:36px;color:#a39785;font-size:12px;border-top:1px solid #e6ddcc;padding-top:14px}
 """
 
@@ -2145,33 +2233,37 @@ def cmd_shelf(argv):
     order = {"reader": 0, "overview": 1, "theme": 2}
     uniq.sort(key=lambda r: (order.get(r["mode"], 9), r["book"]))
     out_dir = os.path.dirname(os.path.abspath(out))
-    parts = []
+    groups = {}
     for r in uniq:
-        if r["html"]:
-            href = os.path.relpath(os.path.abspath(r["html"]), out_dir).replace("\\", "/")
-            tag = ('<a class="card" href="%s">' % esc(href))
-            close = "</a>"
-        else:
-            tag = '<div class="card">'
-            close = "</div>"
-        parts.append(tag)
-        parts.append('<p class="b">%s</p>' % esc(r["book"]))
-        if r["author"]:
-            parts.append('<p class="a">%s</p>' % esc(r["author"]))
-        else:
-            parts.append('<p class="a">未署名作者</p>')
-        parts.append('<p class="m"><span>%s · %d %s</span><span>%s</span></p>'
-                     % (SHELF_LABEL.get(r["mode"], r["mode"]), r["count"], r["unit"],
-                        esc(r["theme"]) if r["html"] else "未构建"))
-        parts.append(close)
-    body = "\n".join(parts) if parts else '<p class="empty">这个目录里没有找到 bookpage IR。</p>'
+        groups.setdefault(r["book"], []).append(r)
+    books = [(bk, sorted(items, key=lambda r: order.get(r["mode"], 9))) for bk, items in groups.items()]
+    books.sort(key=lambda x: x[0])
+    parts = []
+    for bk, items in books:
+        author = next((r["author"] for r in items if r["author"]), "")
+        parts.append('<section class="bk">')
+        parts.append("<h2>%s</h2>" % esc(bk))
+        parts.append('<p class="au">%s</p>'
+                     % ((esc(author) + " · 共 %d 页" % len(items)) if author
+                        else "共 %d 页" % len(items)))
+        parts.append('<div class="row">')
+        for r in items:
+            if r["html"]:
+                href = os.path.relpath(os.path.abspath(r["html"]), out_dir).replace("\\", "/")
+                parts.append('<a class="chip" href="%s">%s · %d %s</a>'
+                             % (esc(href), SHELF_LABEL.get(r["mode"], r["mode"]), r["count"], r["unit"]))
+            else:
+                parts.append('<span class="chip off">%s · 未构建</span>'
+                             % SHELF_LABEL.get(r["mode"], r["mode"]))
+        parts.append("</div></section>")
+    body = "\n".join(parts) if parts else '<p class="empty">这些目录里没有找到 bookpage IR。</p>'
     doc = ("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n"
            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
-           "<title>bookpage 书架</title>\n<style>%s</style>\n</head>\n<body>\n"
-           "<div class=\"page\">\n<h1>书架</h1>\n<p class=\"lead\">共 %d 本，断网也能打开。</p>\n"
-           "<div class=\"grid\">\n%s\n</div>\n"
+           "<title>bookpage 书房</title>\n<style>%s</style>\n</head>\n<body>\n"
+           "<div class=\"page\">\n<h1>书房</h1>\n<p class=\"lead\">共 %d 本、%d 页，断网也能打开；一本书的三种页排在同一行。</p>\n"
+           "%s\n"
            "<footer>bookpage 生成 · 同目录下的 IR 会被自动收进来</footer>\n</div>\n</body>\n</html>\n"
-           % (SHELF_CSS, len(uniq), body))
+           % (SHELF_CSS, len(books), len(uniq), body))
     with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(doc)
     missing = sum(1 for r in uniq if not r["html"])

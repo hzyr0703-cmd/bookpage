@@ -67,7 +67,7 @@ python bookpage.py verify demo-reader.json --source tmp/bookpage-e2e/kb/full_tex
 # 扫描版 PDF 摸底：抽样判文本层，按页渲 PNG，并报「书版页码 = 物理页 - 前置页数」
 python bookpage.py render 书.pdf -o pages/ --pages 1-4 --dpi 180
 
-# 书架：把一个目录里的 IR 收成一页，已构建的给链接，没构建的标「未构建」
+# 书房：把若干目录里的 IR 收成一页，按书分组；已构建的给链接，没构建的标灰
 python bookpage.py shelf 交付目录/ -o 交付目录/index.html
 ```
 
@@ -97,10 +97,12 @@ python tests/selftest.py
 | A13 | verify：引文、原文片段、章题三类错误都能定位到具体字段（E301/E302/E303），正常 IR 必须通过 | PASS（3 章样本，三类错误各自命中） |
 | A18 | split 丢掉目录空条目、版权页不并入首章；verify 抓编造的数字（E304）与编造证据（E305），正常 IR 不误报 | PASS（3 卷夹具 / 1874 年触发 E304 / 伪造 ev 触发 E305） |
 | A20 | verify 抓要点里带引号的编造原话（E306），繁体写法折叠后不误报；未装 zhconv 则跳过 | PASS（编造「壬辰条例」触发 E306 / 「行動」折叠通过） |
+| A21 | 长书分卷：120 章 + 6 组 `parts` 构建、组锚点与目录对齐、两次同哈希；乱序/缺组/未分组一律 E104 | PASS |
 | A19 | 像素基线：三张页（theme / reader / 七组件主题页）× 两个宽度（1280、900）渲染后的 PNG 哈希不变 | PASS（6 张，msedge；换机器或换浏览器版本需 `python tests/visual.py --update` 重钉） |
 | A14 | render：有文本层的 PDF 判「文本层：有」并按页区间渲 PNG；没装 pymupdf 时退化为校验缺依赖报错 rc=2 | PASS（3 页样本 → 只渲 1-2 页） |
-| A15 | shelf：同目录 2 本（1 已构建 / 1 未构建），链接可点、缺构建标注、两次输出同哈希、无占位符与外部引用 | PASS（两次同哈希） |
-| A16 | outline：8 章候选、两次同哈希、长度短于原文、无虚词噪声、无占位符 | PASS（1,233 / 4,596 字节） |\n| A17 | draft：8 章起草包、两次同哈希、包内每句都能在原文逐字找到、长度显著短于原文、无占位符 | PASS（97 句全部命中，3,497 / 4,596 字节） |
+| A15 | shelf 书房页：同目录 2 本 2 页（1 已构建 / 1 未构建）按书分组，链接可点、未构建标灰、两次输出同哈希、无占位符与外部引用 | PASS（2 个书组 / 2 枚页签，两次同哈希） |
+| A16 | outline：8 章候选、两次同哈希、长度短于原文、无虚词噪声、无占位符 | PASS（1,233 / 4,596 字节） |
+| A17 | draft：8 章起草包、两次同哈希、包内每句都能在原文逐字找到、长度显著短于原文、无占位符 | PASS（97 句全部命中，3,497 / 4,596 字节） |
 
 ## draft 起草包（把"写 IR"交给模型的接口）
 
@@ -176,7 +178,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 | --- | --- | --- | --- |
 | `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 | 讲透某个主题、某个机制 |
 | `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 | 先看全书骨架再决定读哪 |
-| `reader` | 单页滚动：全书判断卡 + 概念网格 + 论证主线 + 左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 + 已读标记 | `digest[]` 3–5 条（每条可带 `refs` 章号）、`concepts[]` 2–6 组、`thread[]` 3–6 环（可选）、`chapters[]` 3–40 章（role/gist/points/quote/text） | **快速理解一本书**：先看全书在说什么，再按章扫读、点开原文核对 |
+| `reader` | 单页滚动：全书判断卡 + 概念网格 + 论证主线 + 左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 + 已读标记 | `digest[]` 3–5 条（每条可带 `refs` 章号）、`concepts[]` 2–6 组、`thread[]` 3–6 环（可选）、`chapters[]` 3–120 章（role/gist/points/quote/text）、`parts[]` 2–12 组（可选；**超过 40 章必须分组**，各组章号拼接后须与全书章号一致） | **快速理解一本书**：先看全书在说什么，再按章扫读、点开原文核对 |
 
 ## 组件（12 个，含 `prose` 逃生口）
 

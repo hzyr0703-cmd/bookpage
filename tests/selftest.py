@@ -409,8 +409,12 @@ def a15():
     assert 'href="demo.html"' in html, "已构建的书没有指向成品的链接"
     assert "未构建" in html, "缺构建的书没有标注"
     assert "{{" not in html and "http://" not in html, "书架页含占位符或外部引用"
-    assert html.count('class="card"') == 2, "书架卡数量不符：%d" % html.count('class="card"')
-    return "2 本（1 已构建 / 1 未构建），两次同哈希"
+    books = html.count('<section class="bk">')
+    chips = html.count('class="chip')
+    assert books == 2, "书房分组数量不符：%d" % books
+    assert chips == 2, "书房页签数量不符：%d" % chips
+    assert 'class="chip off"' in html, "未构建的那页没有单独标灰"
+    return "2 本 2 页（1 已构建 / 1 未构建），两次同哈希"
 
 
 def a16():
@@ -580,6 +584,74 @@ def a20():
     return "真引号不误报 / 编造「壬辰条例」触发 E306 / 繁体「行動」折叠后通过"
 
 
+def a21():
+    """A21：长书分卷——120 章 + 6 组 parts：构建成功、组锚点齐、缺组/乱序一律 E104、两次同哈希。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a21-")
+    src = os.path.join(tmp, "book.txt")
+    lines = []
+    for n in range(1, 121):
+        lines.append("第%d章\n这是第%d章的正文，用来测试一百二十章的书页能否分组排版。" % (n, n))
+    open(src, "w", encoding="utf-8", newline="\n").write("\n\n".join(lines) + "\n")
+    parts, chs = [], []
+    for n in range(1, 121):
+        pi = (n - 1) // 20
+        if pi == len(parts):
+            parts.append({"title": "卷%d" % (pi + 1),
+                          "gist": "第%d到第%d章讲这一段的主要变化" % (20 * pi + 1, 20 * pi + 20),
+                          "chapters": []})
+        parts[pi]["chapters"].append(n)
+        chs.append({"n": n, "title": "第%d章" % n, "srcTitle": "第%d章" % n, "role": "承上启下",
+                    "gist": "第%d章交代一件具体的事，它由前一章的结果推出，又给后一章留下问题" % n,
+                    "points": ["这一章先说处境的变化", "再说它逼出的判断"],
+                    "quote": "这是第%d章的正文，用来测试一百二十章的书页能否分组排版。" % n,
+                    "text": ["这是第%d章的正文，用来测试一百二十章的书页能否分组排版。" % n]})
+    ir = {"schema": "bookpage/1",
+          "meta": {"book": "长书夹具", "mode": "reader", "theme": "paper", "topic": "长书分卷"},
+          "hero": {"title": "长书夹具", "lede": "这是一份一百二十章的长书夹具，用来验证分卷之后的目录、章节卡与锚点是否一一对齐；一百二十章不能平铺在目录里，必须靠分卷收拢成六组。", "thesis": "长书必须分组。"},
+          "digest": [{"t": "全书是一条因果链，每一环由前一环逼出", "refs": [1]},
+                     {"t": "中段把代价堆到最高，人物开始付账", "refs": [61]},
+                     {"t": "末段收束，交代代价落在谁身上", "refs": [120]}],
+          "concepts": [{"name": "因果链", "gist": "每一章都是前一环的直接结果", "chapters": [1, 60, 120]},
+                       {"name": "代价", "gist": "代价在末三分之一章集中显形", "chapters": [80, 120]}],
+          "thread": [{"step": "起点", "what": "第一章定下最初的处境与代价", "chapters": [1]},
+                     {"step": "加码", "what": "中段把矛盾推到不得不选的地步", "chapters": [61]},
+                     {"step": "收束", "what": "末章交代全部代价落在谁身上", "chapters": [120]}],
+          "chapters": chs, "parts": parts,
+          "questions": [{"q": "分卷之后读者怎么定位？", "hint": "看左侧目录与组标题。"}]}
+    good = write_json_tmp(tmp, "long.json", ir)
+    out1 = os.path.join(tmp, "a.html")
+    out2 = os.path.join(tmp, "b.html")
+    pg = run(["build", good, out1])
+    assert pg.returncode == 0, "长书构建失败：%s" % (pg.stdout + pg.stderr)
+    html = open(out1, encoding="utf-8").read()
+    assert html.count('<section class="part"') == 6, "组数不对：%d" % html.count('<section class="part"')
+    for i in range(1, 7):
+        assert 'id="pt-%d"' % i in html, "缺组锚点 pt-%d" % i
+    assert html.count('<a class="toc-ch"') == 120, "目录章条数不对"
+    assert html.count('class="chap"') == 120, "章节卡数量不对"
+    run(["build", good, out2])
+    assert open(out1, "rb").read() == open(out2, "rb").read(), "长书两次构建不一致"
+
+    bad = json.loads(json.dumps(ir))
+    bad["parts"][1]["chapters"] = list(reversed(bad["parts"][1]["chapters"]))
+    f1 = write_json_tmp(tmp, "bad-order.json", bad)
+    p1 = run(["lint", f1])
+    assert p1.returncode == 1 and "E104" in p1.stdout and "parts" in p1.stdout, "乱序分组没被拦：%s" % p1.stdout
+
+    miss = json.loads(json.dumps(ir))
+    miss["parts"] = miss["parts"][:5]
+    f2 = write_json_tmp(tmp, "miss-part.json", miss)
+    p2 = run(["lint", f2])
+    assert p2.returncode == 1 and "E104" in p2.stdout, "覆盖不全的分组没被拦：%s" % p2.stdout
+
+    none = json.loads(json.dumps(ir))
+    none.pop("parts")
+    f3 = write_json_tmp(tmp, "no-parts.json", none)
+    p3 = run(["lint", f3])
+    assert p3.returncode == 1 and "E104" in p3.stdout and "parts" in p3.stdout, "超过 40 章却没分组没被拦：%s" % p3.stdout
+    return "120 章 / 6 组构建 + 同哈希；乱序、缺组、未分组三种错误全部 E104"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -601,6 +673,7 @@ def main():
     check("A18", "split 去目录空章；verify 抓编造数字与证据", a18)
     check("A19", "像素基线：三页 × 两宽度渲染不变", a19)
     check("A20", "verify 要点引号：真原话放行、编造拦截、繁简折叠", a20)
+    check("A21", "长书分卷：120 章 / 6 组渲染一致，错误分组一律 E104", a21)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
