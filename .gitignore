@@ -6,3 +6,6 @@ __pycache__/
 smoke.html
 tests/.tmp-extract/
 tmp-bookpage.py.bak
+
+# 草稿与中间产物不入库
+tmp/
