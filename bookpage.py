@@ -29,7 +29,7 @@ EXIT_LINT = 1
 EXIT_USAGE = 2
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,15}$")
-CHAPTER_RE = re.compile(r"第\s*[0-9〇零一二三四五六七八九十百千两]+\s*[章节回卷篇]")
+CHAPTER_RE = re.compile(r"第\s*[0-9〇○零一二三四五六七八九十百千两]+\s*[章节回卷篇]")
 EN_CHAPTER_RE = re.compile(r"^(?:chapter|part)\s+[0-9ivxlc]+\b", re.I)
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
@@ -1679,6 +1679,89 @@ def _drop_toc_stubs(chapters):
     return keep
 
 
+def _is_chapter_heading(s):
+    """章标题判定：章节标记后面必须跟空白，且标题本身不超过 34 字。
+
+    正文里常出现「第四回中既将薛家母子…」这类以回次开头的普通句子，
+    只凭 CHAPTER_RE 会把它们当成章标题，切出一堆假章。
+    """
+    m = CHAPTER_RE.match(s) or EN_CHAPTER_RE.match(s)
+    if not m:
+        return False
+    rest = s[m.end():]
+    # 标题只写「第一卷」、书名另起一行的书：光杆标题也算章标题
+    if not rest.strip():
+        return True
+    # 「第十七回至十八回 …」这种合并回目：把「至十八回」并进标题再判定
+    if rest[:1] in ("至", "～", "-", "—"):
+        m2 = re.match(r"[^\s\u3000]{1,8}[回]", rest)
+        if m2:
+            rest = rest[m2.end():]
+    if not rest or rest[0] not in " \u3000":
+        return False
+    return len(rest.strip()) <= 34
+
+
+def _drop_toc_runs(chapters, min_run=8, min_repeat=0.6):
+    """整块目录：连续 ≥8 个空章，且其中多数章题后面还会再出现一次。
+
+    有些 epub 先把整本书的回目列一遍，再逐回放正文；这些行会被认成章标题，切出一串 0 字章。
+    只按「空」判断会误伤真正很短的章节，所以再加一条：这些标题必须后面重复出现。
+    """
+    def key(t):
+        return re.sub(r"[ \u3000]+", " ", t).strip()
+
+    dup = []
+    for i, (t, _b) in enumerate(chapters):
+        k = key(t)
+        dup.append(any(k and (k in key(t2) or key(t2) in k) for t2, _b2 in chapters[i + 1:]))
+
+    keep, run = [], []
+    for i, item in enumerate(chapters):
+        bare = re.sub(r"[ \u3000]+", " ", item[1]).strip()
+        if len(bare) < TOC_STUB_MAX:
+            run.append((i, item))
+            continue
+        if len(run) >= min_run:
+            hits = sum(1 for j, _it in run if dup[j])
+            if hits < min_repeat * len(run):
+                keep.extend(it for _j, it in run)
+        else:
+            keep.extend(it for _j, it in run)
+        run = []
+        keep.append(item)
+    if run:
+        hits = sum(1 for j, _it in run if dup[j])
+        if len(run) < min_run or hits < min_repeat * len(run):
+            keep.extend(it for _j, it in run)
+    return keep
+
+
+def clean_heading(title):
+    """去掉回目里的校注标记：〔一〕、[1]、(2)。人文社版本的回目里夹着校勘序号，直接显示像乱码。"""
+    t = re.sub(r"〔[^〕]{1,6}〕", "", title)
+    t = re.sub(r"\[[0-9,，\-]{1,8}\]", "", t)
+    t = re.sub(r"[(（][0-9一二三四五]{1,3}[)）]", "", t)
+    t = re.sub(r"[ \u3000]+", " ", t).strip()
+    return t
+
+
+def _merge_duplicate_titles(chapters):
+    """同名相邻章只留正文最长的一份。
+
+    前置页（版权、凡例、序）若被首章的标题吸进去，会和真正的第一回同名；
+    目录里残留的单词条也会和正文里的同名章并存。同名只留长的那份即可。
+    """
+    out = []
+    for title, body in chapters:
+        if out and out[-1][0] == title:
+            if len(body) > len(out[-1][1]):
+                out[-1] = (title, body)
+            continue
+        out.append((title, body))
+    return out
+
+
 def split_chapters(text, max_chars=6000):
     """按章节标题切分正文；找不到标题时按字数等分。返回 ([(title, body)], method)。"""
     text = strip_boilerplate(text)
@@ -1691,8 +1774,8 @@ def split_chapters(text, max_chars=6000):
         s = re.sub(r"^[#>*\-\s]+", "", s)
         if not s or len(s) > 40:
             continue
-        if CHAPTER_RE.match(s) or EN_CHAPTER_RE.match(s):
-            starts.append((i, re.sub(r"[ \u3000]+", " ", s).strip()))
+        if _is_chapter_heading(s):
+            starts.append((i, clean_heading(s)))
     if not starts:
         blocks, buf, total = [], [], 0
         for line in lines:
@@ -1721,7 +1804,8 @@ def split_chapters(text, max_chars=6000):
         keep = [l for l in body.splitlines()
                 if re.sub(r"[ \u3000]+", " ", l.strip()) != norm]
         out.append((title, "\n".join(keep).strip()))
-    return _drop_toc_stubs(out), "headings"
+    out = _merge_duplicate_titles(_drop_toc_stubs(_drop_toc_runs(out)))
+    return out, "headings"
 
 
 def read_text(path):
@@ -2413,6 +2497,11 @@ def cmd_chapters(argv):
     return EXIT_OK
 
 
+def isdir_hint(path):
+    """-o 给的是目录（已存在或带结尾斜杠）时，把全文写进该目录的 full_text.txt。"""
+    return os.path.isdir(path) or path.endswith(("/", os.sep))
+
+
 def cmd_extract(argv):
     out = None
     if "-o" in argv:
@@ -2434,6 +2523,11 @@ def cmd_extract(argv):
         return _fail_usage("解析 %s 失败（%s）" % (src, exc))
     if out is None:
         out = os.path.splitext(src)[0] + ".txt"
+    elif isdir_hint(out):
+        out = os.path.join(out, "full_text.txt")
+    parent = os.path.dirname(os.path.abspath(out))
+    if not os.path.isdir(parent):
+        os.makedirs(parent)
     with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     sys.stdout.write("extracted: %s（%s）-> %s\n" % (src, method, out))
@@ -2466,6 +2560,10 @@ def cmd_split(argv):
         out = os.path.splitext(src)[0] + ".chapters"
     if not os.path.isdir(out):
         os.makedirs(out)
+    # 清掉上一次切分留下的 ch-*.md：章节数变化时旧文件会残留，读章程序会按文件名读到错位的章。
+    for stale in os.listdir(out):
+        if re.match(r"ch-[0-9]+.md$", stale):
+            os.unlink(os.path.join(out, stale))
     index = []
     for i, (title, body) in enumerate(chapters, 1):
         name = "ch-%02d.md" % i

@@ -14,6 +14,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import bookpage as bp  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SCRIPT = os.path.join(ROOT, "bookpage.py")
@@ -652,6 +655,31 @@ def a21():
     return "120 章 / 6 组构建 + 同哈希；乱序、缺组、未分组三种错误全部 E104"
 
 
+def a22():
+    """A22：目录块与正文回目——目录整段丢弃、回次开头的普通句子不算章、合并回目算一章、校注标记从章题里去掉。"""
+    heads = ["第%d回 回目%d" % (i, i) for i in range(1, 11)]
+    bodies = ["第%d回 回目%d\n\n这是第%d回的正文。这一回里发生了一件完整的事，人物来了又走，话说完了又留下回响，"
+              "中间还有一段闲笔交代了来龙去脉，所以它足够长，不会被当成目录条目——目录条目只有一行回目、没有正文。" % (i, i, i)
+              for i in range(1, 11)]
+    text = "\n".join(heads) + "\n\n返回总目录\n\n" + "\n\n".join(bodies)
+    text = text.replace("这是第2回的正文", "第四回中既将薛家母子在荣府内寄居等事略已表明，此回则暂不能写矣。\n\n这是第2回的正文")
+    chs, method = bp.split_chapters(text)
+    assert method == "headings", "切章方式不对：%s" % method
+    assert len(chs) == 10, "目录块没被整段丢弃，切出 %d 章" % len(chs)
+    titles = [t for t, _b in chs]
+    assert all("回目" in t for t in titles), "章题不对：%s" % titles[:3]
+    assert not any(t.startswith("第四回中") for t in titles), "正文里的回次句被当成章标题"
+
+    merged, _m = bp.split_chapters(
+        "第十七回至十八回 大观园试才题对额\n\n这一回把省亲的排场与花费一并写出来，属于合并回目的一章。")
+    assert len(merged) == 1 and "至十八回" in merged[0][0], "合并回目没被识别：%s" % merged
+
+    assert bp.clean_heading("第一回〔一〕 校注字样") == "第一回 校注字样", "校注标记没清理"
+    assert bp.clean_heading("第一回[1] 校注字样") == "第一回 校注字样", "方括号序号没清理"
+    assert bp.clean_heading("第一回（2）校注字样") == "第一回校注字样", "圆括号序号没清理"
+    assert bp.clean_heading("第一○一回 散花寺神签惊异兆") == "第一○一回 散花寺神签惊异兆", "○ 编号被改坏"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -674,6 +702,7 @@ def main():
     check("A19", "像素基线：三页 × 两宽度渲染不变", a19)
     check("A20", "verify 要点引号：真原话放行、编造拦截、繁简折叠", a20)
     check("A21", "长书分卷：120 章 / 6 组渲染一致，错误分组一律 E104", a21)
+    check("A22", "split 目录块 / 假章 / 合并回目 / 校注标记", a22)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
