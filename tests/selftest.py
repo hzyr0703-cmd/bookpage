@@ -526,6 +526,18 @@ def a18():
     return "3 卷（目录条目已丢）/ E304 抓编数字 / E305 抓编证据"
 
 
+def a19():
+    """A19：像素基线 —— 三张页 × 两种宽度，渲染出来的样子不能变。"""
+    r = subprocess.run([sys.executable, os.path.join(HERE, "visual.py")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    out = (r.stdout or "") + (r.stderr or "")
+    assert r.returncode == 0, "像素基线不一致：%s" % out.strip()[:600]
+    if "SKIP" in out:
+        return "跳过（本机无 Edge）：%s" % out.strip().splitlines()[-1]
+    return out.strip().splitlines()[-1]
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -545,6 +557,7 @@ def main():
     check("A16", "outline：只交可验证信号，两次一致", a16)
     check("A17", "draft：起草包只含原文片段，两次一致", a17)
     check("A18", "split 去目录空章；verify 抓编造数字与证据", a18)
+    check("A19", "像素基线：三页 × 两宽度渲染不变", a19)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
