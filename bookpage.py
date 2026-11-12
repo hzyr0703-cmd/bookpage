@@ -145,6 +145,8 @@ details.fold .body{padding:0 18px 16px;font-size:14px;color:var(--ink-soft)}
 .dt-node{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:4px 14px;margin:0 0 8px}
 .dt-node summary{cursor:pointer;font-size:14.5px;padding:10px 0;list-style:none;font-weight:600}
 .dt-node summary::-webkit-details-marker{display:none}
+.dt-node summary::before{content:"▸";display:inline-block;color:var(--red);margin-right:9px;font-weight:400}
+details.dt-node[open] summary::before{content:"▾"}
 .dt-opts{padding:0 0 8px 8px;border-left:2px solid var(--tint-accent-strong);margin-left:6px}
 .dt-result{font-size:14px;color:var(--ink-soft);padding:6px 0 10px}
 .ba{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:12px;overflow:hidden}
