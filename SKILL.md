@@ -35,7 +35,7 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 4. **lint**：`python bookpage.py lint ir.json` —— 退出码 1 即失败，输出形如 `E102 sections[0].data.steps: 缺失或不是 list`。
 5. **修**：只按错误码改对应字段，不重写整份 IR。
 6. **build**：`python bookpage.py build ir.json out.html`。
-7. **verify**：`python bookpage.py verify ir.json --source 书稿.txt` —— 逐条确认引文、原文片段、章题真的出自书稿（`E301` 引文 / `E302` 片段 / `E303` 章题），并打印覆盖率；产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
+7. **verify**：`python bookpage.py verify ir.json --source 书稿.txt` —— 逐条确认引文、原文片段、章题真的出自书稿（`E301` 引文 / `E302` 片段 / `E303` 章题 / `E304` 要点里的数字与拉丁名在该章正文找不到 / `E305` `ev[]` 证据片段不在该章正文），并打印覆盖率；要点里凡是写「某某年」「某卷」「某个百分比」或英文人名、术语的，都可加 `ev[]`（1–4 条，每条 ≤60 字，逐字摘自该章正文）让 verify 认账；产物里不该有 `{{` 残留；`section.id` 数 = `tab` 数 = `panel` 数。
 
 ## 五条辅助命令
 

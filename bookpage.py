@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 import os
 import re
 import sys
+import unicodedata
 
 VERSION = "1.0"
 SCHEMA = "bookpage/1"
@@ -1569,6 +1570,31 @@ def clean_chapter_body(body):
     return "\n".join(lines).strip()
 
 
+FRONT_HINTS = ("版权信息", "版权页", "ISBN", "书名：", "书名:", "Copyright", "图书在版编目")
+TOC_STUB_MAX = 60  # 目录页里每卷只占一行，正文为空
+
+
+def _looks_front_matter(text):
+    if len(text) > 2000:
+        return False
+    return any(h in text for h in FRONT_HINTS)
+
+
+def _drop_toc_stubs(chapters):
+    """目录页会给每卷留一个空章，正文里再出现一次同名标题。
+
+    规则：正文不足 60 字且后面还有同名章 → 视为目录条目丢弃；正文保留下来的那份才是真章。
+    """
+    keys = [re.sub(r"[ \u3000]+", " ", t).strip() for t, _b in chapters]
+    keep = []
+    for i, (title, body) in enumerate(chapters):
+        bare = re.sub(r"[ \u3000]+", " ", body).strip()
+        if len(bare) < TOC_STUB_MAX and keys[i] in keys[i + 1:]:
+            continue
+        keep.append((title, body))
+    return keep
+
+
 def split_chapters(text, max_chars=6000):
     """按章节标题切分正文；找不到标题时按字数等分。返回 ([(title, body)], method)。"""
     text = strip_boilerplate(text)
@@ -1603,7 +1629,7 @@ def split_chapters(text, max_chars=6000):
         body = "\n".join(lines[idx:end])
         if k == 0:
             head = "\n".join(lines[:idx]).strip()
-            if head:
+            if head and not _looks_front_matter(head):
                 body = head + "\n\n" + body
         body = clean_chapter_body(body)
         # 正文里常把章题再印一遍，去掉与标题重复的行
@@ -1611,7 +1637,7 @@ def split_chapters(text, max_chars=6000):
         keep = [l for l in body.splitlines()
                 if re.sub(r"[ \u3000]+", " ", l.strip()) != norm]
         out.append((title, "\n".join(keep).strip()))
-    return out, "headings"
+    return _drop_toc_stubs(out), "headings"
 
 
 def read_text(path):
@@ -1795,12 +1821,34 @@ MATCH_MAP = str.maketrans({
 
 
 def _match_key(text):
-    """比对用的归一化：统一引号/省略号、去掉所有空白，保留标点与字序。"""
-    return "".join(str(text).translate(MATCH_MAP).split())
+    """比对用的归一化：NFKC（全角→半角）、统一引号/省略号、去掉所有空白。"""
+    return "".join(unicodedata.normalize("NFKC", str(text)).translate(MATCH_MAP).split())
 
 
 def _title_key(text):
     return re.sub(r"[ \u3000]+", " ", str(text)).strip()
+
+
+POINT_QUOTE_RE = re.compile(r"[「『“]([^「」『』“”]{2,40})[」』”]")
+POINT_BOOK_RE = re.compile(r"《([^》]{2,30})》")
+POINT_NUM_RE = re.compile(r"([0-9]{1,4}(?:年|月|日|卷|章|个|次|倍|%|％)?)")
+POINT_LATIN_RE = re.compile(r"[A-Za-z]{2,12}")
+
+
+def _point_refs(point):
+    """要点里"可被机器核对"的字面量：数字与拉丁名（NFKC 归一，全角/半角等价）。
+
+    只查这两类，是有意为之：它们写错就是幻觉，且不受简体/繁体改写影响。
+    曾把引号短语与书名也纳入，结果在自己的真页面上误报 5 处（原文「阿Ｑ」是全角、
+    庄子原文是繁体，要点写简体）——宁可少查，不可误报，否则这条检查会被关掉。
+    普通叙述不做比对：按 2 字窗口算重合度时真要点 0.14、假要点 0.00，没有区分度。
+    """
+    out = []
+    for m in POINT_NUM_RE.finditer(point):
+        out.append(m.group(1))
+    for m in POINT_LATIN_RE.finditer(point):
+        out.append(m.group(0))
+    return [x for x in out if len(x) >= 2]
 
 
 def verify_ir(ir, source_text):
@@ -1837,6 +1885,19 @@ def verify_ir(ir, source_text):
                     errs.append(("E302", "chapters[%d].text[%d]" % (i, k),
                                  "原文片段不在该章正文里"))
             stats["coverage"].append(covered / float(max(1, len(body))))
+            # E304：要点里的引号短语/书名/数字/拉丁名，必须能在这章正文里找到
+            for pk, point in enumerate(c.get("points") or []):
+                for ref in _point_refs(point):
+                    stats["point_refs"] = stats.get("point_refs", 0) + 1
+                    if _match_key(ref) not in body_key:
+                        errs.append(("E304", "chapters[%d].points[%d]" % (i, pk),
+                                     "要点里的「%s」在该章正文里找不到（疑似凭记忆补的）" % ref))
+            # E305：可选的证据片段 ev[]，必须逐字出自本章正文
+            for ek, seg in enumerate(c.get("ev") or []):
+                stats["ev"] = stats.get("ev", 0) + 1
+                if _match_key(seg) not in body_key:
+                    errs.append(("E305", "chapters[%d].ev[%d]" % (i, ek),
+                                 "证据片段不在该章正文里"))
     else:
         book_key = _match_key(source_text)
         for i, sec in enumerate(ir.get("sections") or []):

@@ -466,6 +466,66 @@ def a17():
     return "8 章 / %d 句全部逐字命中原文 / 长度 %d/%d" % (checked, len(md), len(src))
 
 
+def a18():
+    """A18：目录空条目被丢弃、版权页不并入首章；要点字面量与证据片段必须对得上原文。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a18-")
+    src = os.path.join(tmp, "book.txt")
+    body = ("版权信息\n书名：测试之书\n作者：某人\nISBN 123-456\n\n"
+            "第一卷\n第二卷\n第三卷\n\n"
+            "第一卷\n阿尔法说，先看清再行动，这是第一条。\n\n"
+            "第二卷\n贝塔记录了三次失败与两次修正，共 5 年。\n\n"
+            "第三卷\n伽马认为，凡是能解释的都值得留下。\n")
+    open(src, "w", encoding="utf-8", newline="\n").write(body)
+    sp = run(["split", src, "-o", os.path.join(tmp, "chs")])
+    assert sp.returncode == 0, "split 失败：%s" % (sp.stdout + sp.stderr)
+    idx = json.load(open(os.path.join(tmp, "chs", "index.json"), encoding="utf-8"))
+    assert len(idx["chapters"]) == 3, "目录空条目没被丢弃（应为 3 卷）：%d" % len(idx["chapters"])
+
+    ir = {"schema": "bookpage/1",
+          "meta": {"book": "测试之书", "author": "某人", "mode": "reader", "theme": "paper",
+                   "topic": "三卷", "sources": ["夹具"]},
+          "hero": {"eyebrow": "测试", "title": "三卷的结构", "lede": "这是一份用来核对验证器的夹具页面，三段正文各成一卷，卷一讲看清再行动，卷二讲失败与修正，卷三讲解释的价值与边界。", "thesis": "验证器只认原文里真有的字。"},
+          "digest": [{"t": "卷一给的是行动前的自检", "refs": [1]},
+                     {"t": "卷二给的是失败的账本", "refs": [2]}],
+          "concepts": [{"name": "先看清", "gist": "行动之前先判断局面", "chapters": [1]},
+                       {"name": "修正", "gist": "失败要记账再改", "chapters": [2]}],
+          "chapters": [
+            {"n": 1, "title": "第一卷", "srcTitle": "第一卷", "role": "立规矩：先看清再动手",
+             "gist": "阿尔法把行动前的判断写成第一条规矩", "points": ["先看清再行动", "第一条规矩要能自检"],
+             "ev": ["阿尔法说，先看清再行动，这是第一条。"],
+             "quote": "阿尔法说，先看清再行动，这是第一条。", "quote_from": "第一卷",
+             "text": ["阿尔法说，先看清再行动，这是第一条。"]},
+            {"n": 2, "title": "第二卷", "srcTitle": "第二卷", "role": "记账：把失败写下来",
+             "gist": "贝塔记了三次失败与两次修正，历时 5 年", "points": ["三次失败", "两次修正"],
+             "ev": ["贝塔记录了三次失败与两次修正，共 5 年。"],
+             "quote": "贝塔记录了三次失败与两次修正，共 5 年。", "quote_from": "第二卷",
+             "text": ["贝塔记录了三次失败与两次修正，共 5 年。"]},
+            {"n": 3, "title": "第三卷", "srcTitle": "第三卷", "role": "收束：给解释划边界",
+             "gist": "伽马说能解释的才值得留下", "points": ["能解释的值得留下"],
+             "ev": ["伽马认为，凡是能解释的都值得留下。"],
+             "quote": "伽马认为，凡是能解释的都值得留下。", "quote_from": "第三卷",
+             "text": ["伽马认为，凡是能解释的都值得留下。"]},
+          ],
+          "questions": [{"q": "三卷的顺序能不能换？", "hint": "看卷一与卷三的因果关系。"},
+                        {"q": "你最先想改哪条规矩？", "hint": "回到卷一的第一句。"}]}
+    good = write_json_tmp(tmp, "good.json", ir)
+    pv = run(["verify", good, "--source", src])
+    assert pv.returncode == 0 and "E30" not in pv.stdout, "正常 IR 误报：%s" % (pv.stdout + pv.stderr)
+
+    bad = json.loads(json.dumps(ir))
+    bad["chapters"][1]["points"][1] = "到 1874 年一共修正了四次"
+    f = write_json_tmp(tmp, "bad-num.json", bad)
+    pn = run(["verify", f, "--source", src])
+    assert pn.returncode == 1 and "E304" in pn.stdout, "要点里编的数字没被抓到：%s" % (pn.stdout + pn.stderr)
+
+    bad2 = json.loads(json.dumps(ir))
+    bad2["chapters"][2]["ev"][0] = "伽马说，解释不了的就该丢掉。"
+    f2 = write_json_tmp(tmp, "bad-ev.json", bad2)
+    pe = run(["verify", f2, "--source", src])
+    assert pe.returncode == 1 and "E305" in pe.stdout, "编造的证据片段没被抓到：%s" % (pe.stdout + pe.stderr)
+    return "3 卷（目录条目已丢）/ E304 抓编数字 / E305 抓编证据"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -484,6 +544,7 @@ def main():
     check("A15", "shelf：同目录 IR 收成一页", a15)
     check("A16", "outline：只交可验证信号，两次一致", a16)
     check("A17", "draft：起草包只含原文片段，两次一致", a17)
+    check("A18", "split 去目录空章；verify 抓编造数字与证据", a18)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
