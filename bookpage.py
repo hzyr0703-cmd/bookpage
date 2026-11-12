@@ -968,14 +968,14 @@ def _v_reader(errs, ir):
         if tx is not None:
             if not isinstance(tx, list):
                 errs.append(("E103", p + ".text", "期望 array，得到 %s" % _typename(tx)))
-            elif not (1 <= len(tx) <= 3):
-                errs.append(("E104", p + ".text", "%d 段，期望 1–3" % len(tx)))
+            elif not (1 <= len(tx) <= 4):
+                errs.append(("E104", p + ".text", "%d 段，期望 1–4" % len(tx)))
             else:
                 for j, t in enumerate(tx):
                     if not isinstance(t, str):
                         errs.append(("E103", "%s.text[%d]" % (p, j), "期望 string，得到 %s" % _typename(t)))
-                    elif not (1 <= len(t) <= 220):
-                        errs.append(("E104", "%s.text[%d]" % (p, j), "%d 字，期望 1–220" % len(t)))
+                    elif not (1 <= len(t) <= 400):
+                        errs.append(("E104", "%s.text[%d]" % (p, j), "%d 字，期望 1–400" % len(t)))
 
 
 # ---------------------------------------------------------------- 顶层校验
@@ -1242,7 +1242,8 @@ READER_JS = """(function () {
     if (cnt) cnt.textContent = "显示 " + shown + " / " + cards.length + " 章";
   }
   if (box) { box.addEventListener("input", apply); apply(); }
-  var readKey = "bp-read:" + (document.title || "");
+  var bookTag = (document.body.getAttribute("data-book") || "").trim();
+  var readKey = "bp-read:" + (bookTag || document.title || "");
   var readSet = {};
   try {
     var raw = window.localStorage.getItem(readKey);
@@ -1303,7 +1304,7 @@ def render_reader(ir):
     out.append(BASE_CSS)
     out.append("</style>")
     out.append("</head>")
-    out.append("<body>")
+    out.append('<body data-book="%s">' % esc(book))
     out.append('<div id="rProg"></div>')
     crumb = " · ".join([x for x in (book, meta.get("topic")) if x])
     out.append('<div class="topbar"><span class="crumb">%s</span></div>' % esc(crumb))
