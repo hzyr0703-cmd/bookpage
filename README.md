@@ -61,7 +61,7 @@ python bookpage.py extract 某本书.epub -o full_text.txt
 # 起草候选：每章首句/末句/书内引号句（只给能过 verify 的句子）
 python bookpage.py outline 书.txt -o 候选.md
 
-# 引文核对：引文/原文片段/章题/要点里的数字与人名是否真出自书稿（E301–E305）+ 覆盖率
+# 引文核对：引文/原文片段/章题/要点数字与拉丁名/要点里的「」原话（E301–E306）+ 覆盖率
 python bookpage.py verify demo-reader.json --source tmp/bookpage-e2e/kb/full_text.txt
 
 # 扫描版 PDF 摸底：抽样判文本层，按页渲 PNG，并报「书版页码 = 物理页 - 前置页数」
@@ -96,6 +96,7 @@ python tests/selftest.py
 | A11 | reader 模式 + split：样书切出 8 章（文件数与 index 一致、每文件有标题行)、reader 两次构建同哈希、无 tab、有目录与搜索框、digest 卡与概念卡数量与 IR 一致、digest 的章号引用数与 IR 一致且不指向空锚点、无外部引用；无标题书回退到等分切 | PASS（8 章 / `35f69bba96…` / 等分回退） |
 | A13 | verify：引文、原文片段、章题三类错误都能定位到具体字段（E301/E302/E303），正常 IR 必须通过 | PASS（3 章样本，三类错误各自命中） |
 | A18 | split 丢掉目录空条目、版权页不并入首章；verify 抓编造的数字（E304）与编造证据（E305），正常 IR 不误报 | PASS（3 卷夹具 / 1874 年触发 E304 / 伪造 ev 触发 E305） |
+| A20 | verify 抓要点里带引号的编造原话（E306），繁体写法折叠后不误报；未装 zhconv 则跳过 | PASS（编造「壬辰条例」触发 E306 / 「行動」折叠通过） |
 | A19 | 像素基线：三张页（theme / reader / 七组件主题页）× 两个宽度（1280、900）渲染后的 PNG 哈希不变 | PASS（6 张，msedge；换机器或换浏览器版本需 `python tests/visual.py --update` 重钉） |
 | A14 | render：有文本层的 PDF 判「文本层：有」并按页区间渲 PNG；没装 pymupdf 时退化为校验缺依赖报错 rc=2 | PASS（3 页样本 → 只渲 1-2 页） |
 | A15 | shelf：同目录 2 本（1 已构建 / 1 未构建），链接可点、缺构建标注、两次输出同哈希、无占位符与外部引用 | PASS（两次同哈希） |

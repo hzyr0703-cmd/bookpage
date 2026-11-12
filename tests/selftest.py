@@ -538,6 +538,48 @@ def a19():
     return out.strip().splitlines()[-1]
 
 
+def a20():
+    """A20：要点里引号包着的"原话"必须真在正文里；繁简用 zhconv 折叠，缺库则跳过。"""
+    try:
+        import zhconv  # noqa: F401
+    except Exception:
+        return "跳过（未安装 zhconv，E306 不启用）"
+    tmp = tempfile.mkdtemp(prefix="bookpage-a20-")
+    src = os.path.join(tmp, "book.txt")
+    open(src, "w", encoding="utf-8", newline="\n").write(
+        "第一卷\n阿尔法说，先看清再行动。\n\n第二卷\n贝塔记录了三次失败。\n")
+    base = {"schema": "bookpage/1",
+            "meta": {"book": "测试", "author": "某人", "mode": "reader", "theme": "paper",
+                     "topic": "两卷", "sources": ["夹具"]},
+            "hero": {"eyebrow": "测试", "title": "两卷", "lede": "这是一份用来核对要点引号的夹具页面，卷一讲看清再行动，卷二讲失败与修正，两卷合起来只说明一件事。", "thesis": "引号里的话必须是原话。"},
+            "digest": [{"t": "卷一讲判断先于行动", "refs": [1]}, {"t": "卷二讲失败要记账", "refs": [2]}],
+            "concepts": [{"name": "看清", "gist": "先判断再动手", "chapters": [1]}],
+            "chapters": [
+              {"n": 1, "title": "第一卷", "srcTitle": "第一卷", "role": "立规矩", "gist": "阿尔法要求先看清局面再行动",
+               "points": ["阿尔法说「先看清再行动」", "他还留了一句自检话"],
+               "quote": "阿尔法说，先看清再行动。", "quote_from": "第一卷",
+               "text": ["阿尔法说，先看清再行动。"]},
+              {"n": 2, "title": "第二卷", "srcTitle": "第二卷", "role": "记账", "gist": "贝塔把三次失败都记了下来",
+               "points": ["记了三次失败"], "quote": "贝塔记录了三次失败。", "quote_from": "第二卷",
+               "text": ["贝塔记录了三次失败。"]}],
+            "questions": [{"q": "为什么先看清？", "hint": "回到卷一第一句。"}]}
+    good = write_json_tmp(tmp, "good.json", base)
+    pg = run(["verify", good, "--source", src])
+    assert pg.returncode == 0, "真原话被误报：%s" % (pg.stdout + pg.stderr)
+    bad = json.loads(json.dumps(base))
+    bad["chapters"][0]["points"][1] = "他说的「壬辰条例」根本不存在"
+    f = write_json_tmp(tmp, "bad-name.json", bad)
+    pn = run(["verify", f, "--source", src])
+    assert pn.returncode == 1 and "E306" in pn.stdout, "编造的引号短语没被抓到：%s" % (pn.stdout + pn.stderr)
+    z = json.loads(json.dumps(base))
+    z["chapters"][0]["points"][0] = "阿尔法说「先看清再行動」"
+    z["chapters"][0]["text"] = ["阿尔法说，先看清再行动。"]
+    fz = write_json_tmp(tmp, "trad.json", z)
+    pz = run(["verify", fz, "--source", src])
+    assert pz.returncode == 0, "繁体写法被当成编造（繁简折叠失效）：%s" % (pz.stdout + pz.stderr)
+    return "真引号不误报 / 编造「壬辰条例」触发 E306 / 繁体「行動」折叠后通过"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -558,6 +600,7 @@ def main():
     check("A17", "draft：起草包只含原文片段，两次一致", a17)
     check("A18", "split 去目录空章；verify 抓编造数字与证据", a18)
     check("A19", "像素基线：三页 × 两宽度渲染不变", a19)
+    check("A20", "verify 要点引号：真原话放行、编造拦截、繁简折叠", a20)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

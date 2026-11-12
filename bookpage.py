@@ -1842,8 +1842,6 @@ def _point_refs(point):
     """要点里"可被机器核对"的字面量：数字与拉丁名（NFKC 归一，全角/半角等价）。
 
     只查这两类，是有意为之：它们写错就是幻觉，且不受简体/繁体改写影响。
-    曾把引号短语与书名也纳入，结果在自己的真页面上误报 5 处（原文「阿Ｑ」是全角、
-    庄子原文是繁体，要点写简体）——宁可少查，不可误报，否则这条检查会被关掉。
     普通叙述不做比对：按 2 字窗口算重合度时真要点 0.14、假要点 0.00，没有区分度。
     """
     out = []
@@ -1852,6 +1850,34 @@ def _point_refs(point):
     for m in POINT_LATIN_RE.finditer(point):
         out.append(m.group(0))
     return [x for x in out if len(x) >= 2]
+
+
+_FOLD = None
+_FOLD_TRIED = False
+
+
+def _fold_fn():
+    """繁→简折叠函数；zhconv 不在时装不上就返回 None（这条检查跳过，不新增硬依赖）。"""
+    global _FOLD, _FOLD_TRIED
+    if _FOLD_TRIED:
+        return _FOLD
+    _FOLD_TRIED = True
+    try:
+        import zhconv
+        _FOLD = lambda t: zhconv.convert(str(t), "zh-cn")
+    except Exception:
+        _FOLD = None
+    return _FOLD
+
+
+def _point_names(point):
+    """要点里的引号短语与书名（含汉字的），交给折叠后的比对。"""
+    out = []
+    for m in POINT_QUOTE_RE.finditer(point):
+        out.append(m.group(1))
+    for m in POINT_BOOK_RE.finditer(point):
+        out.append(m.group(1))
+    return [x for x in out if CJK_RE.search(x) and len(x) >= 2]
 
 
 def verify_ir(ir, source_text):
@@ -1888,13 +1914,26 @@ def verify_ir(ir, source_text):
                     errs.append(("E302", "chapters[%d].text[%d]" % (i, k),
                                  "原文片段不在该章正文里"))
             stats["coverage"].append(covered / float(max(1, len(body))))
-            # E304：要点里的引号短语/书名/数字/拉丁名，必须能在这章正文里找到
+            # E304：要点里的数字与拉丁名，必须能在这章正文里找到
             for pk, point in enumerate(c.get("points") or []):
                 for ref in _point_refs(point):
                     stats["point_refs"] = stats.get("point_refs", 0) + 1
                     if _match_key(ref) not in body_key:
                         errs.append(("E304", "chapters[%d].points[%d]" % (i, pk),
                                      "要点里的「%s」在该章正文里找不到（疑似凭记忆补的）" % ref))
+                # E306：要点里的引号短语/书名，繁简折叠后再比对（需 zhconv，缺则跳过）
+                fold = _fold_fn()
+                if fold is None:
+                    continue
+                fbody = _match_key(fold(body))
+                fbody_np = re.sub(r"[，。、；：！？…\"'（）()《》「」『』]", "", fbody)
+                for name in _point_names(point):
+                    stats["point_names"] = stats.get("point_names", 0) + 1
+                    k1 = _match_key(fold(name))
+                    k2 = re.sub(r"[，。、；：！？…\"'（）()《》「」『』]", "", k1)
+                    if k1 not in fbody and k2 not in fbody_np:
+                        errs.append(("E306", "chapters[%d].points[%d]" % (i, pk),
+                                     "要点里的「%s」在该章正文里找不到（繁简已折叠，疑似凭记忆补的）" % name))
             # E305：可选的证据片段 ev[]，必须逐字出自本章正文
             for ek, seg in enumerate(c.get("ev") or []):
                 stats["ev"] = stats.get("ev", 0) + 1
@@ -1907,7 +1946,11 @@ def verify_ir(ir, source_text):
             if sec.get("signature") != "quote_card":
                 continue
             q = (sec.get("data") or {}).get("text")
+            src_note = str((sec.get("data") or {}).get("source") or "") + str((sec.get("data") or {}).get("speaker") or "")
             if q:
+                if "非原文" in src_note or "转述" in src_note:
+                    stats["quotes_skipped"] = stats.get("quotes_skipped", 0) + 1
+                    continue
                 stats["quotes"] += 1
                 if _match_key(q) not in book_key:
                     errs.append(("E301", "sections[%d].data.text" % i, "引文不在书稿里"))
