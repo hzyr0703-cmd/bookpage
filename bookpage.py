@@ -176,7 +176,7 @@ details.dt-node[open] summary::before{content:"▾"}
 .questions{margin-top:56px;padding-top:28px;border-top:1px solid var(--line)}
 .questions h2{font-family:var(--font-display);font-size:22px;margin:0 0 4px}
 .qgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.qcard{font:inherit;text-align:left;cursor:pointer;padding:18px;border-radius:12px;border:1px solid var(--line);background:var(--surface);min-height:132px}
+.qcard{font:inherit;text-align:left;cursor:pointer;padding:18px;border-radius:12px;border:1px solid var(--line);background:var(--surface);min-height:132px;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
 .qcard:hover{border-color:var(--gold)}
 .qcard .q{font-size:14.5px;font-weight:600;display:block;margin-bottom:10px}
 .qcard .hint{font-size:13px;color:var(--ink-soft);opacity:0}
