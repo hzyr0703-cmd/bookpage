@@ -3237,6 +3237,13 @@ def cmd_draft(argv):
               % (len(chapters), method, len(md), estimate_tokens(md), dest))
     else:
         sys.stdout.write(md)
+    if not nsplit:
+        est = estimate_tokens(md)
+        if est > 20000:
+            print("提示：本卷起草包约 %d tokens，超出单次通读的舒适区；"
+                  "建议加 --split %d 按卷切分（每卷约 %d tokens）"
+                  % (est, max(2, (est + 17999) // 18000),
+                     est // max(2, (est + 17999) // 18000)), file=sys.stderr)
     return EXIT_OK
 
 
