@@ -1016,6 +1016,129 @@ def _v_reader(errs, ir):
 
 
 # ---------------------------------------------------------------- 顶层校验
+
+# ---------------------------------------------------------------- 讲解模式校验
+def _v_guide(errs, ir):
+    """guide 模式：概念只有 6–12 个，每个都要有机制、场景、边界。"""
+    prem = ir.get("premise")
+    if not isinstance(prem, str):
+        errs.append(("E103", "premise", "期望 string，得到 %s" % _typename(prem)))
+    elif not (10 <= len(prem) <= 40):
+        errs.append(("E104", "premise", "%d 字，期望 10–40" % len(prem)))
+
+    sp = ir.get("support")
+    if sp is not None:
+        if not isinstance(sp, list):
+            errs.append(("E103", "support", "期望 array，得到 %s" % _typename(sp)))
+        elif not (1 <= len(sp) <= 2):
+            errs.append(("E104", "support", "%d 组，期望 0–2" % len(sp)))
+        else:
+            for j, g in enumerate(sp):
+                base = "support[%d]" % j
+                if not isinstance(g, dict):
+                    errs.append(("E103", base, "期望 object，得到 %s" % _typename(g)))
+                    continue
+                kind = fv_str(errs, base, g, "kind", 1, 8)
+                if kind and kind not in ("map", "flow"):
+                    errs.append(("E100", base + ".kind", "只支持 map / flow，收到 %r" % kind))
+                fv_str(errs, base, g, "title", 1, 12)
+                rows = fv_list(errs, base, g, "rows", 2, 8)
+                for k, r in enumerate(rows or []):
+                    rp = "%s.rows[%d]" % (base, k)
+                    if not isinstance(r, dict):
+                        errs.append(("E103", rp, "期望 object，得到 %s" % _typename(r)))
+                        continue
+                    fv_str(errs, rp, r, "label", 1, 14)
+                    fv_str(errs, rp, r, "note", 0, 40, required=False)
+
+    ideas = ir.get("ideas")
+    ids = []
+    if not isinstance(ideas, list):
+        errs.append(("E103", "ideas", "期望 array，得到 %s" % _typename(ideas)))
+        ideas = []
+    elif not (6 <= len(ideas) <= 12):
+        errs.append(("E104", "ideas", "%d 个，期望 6–12" % len(ideas)))
+    noev = 0
+    for j, it in enumerate(ideas):
+        base = "ideas[%d]" % j
+        if not isinstance(it, dict):
+            errs.append(("E103", base, "期望 object，得到 %s" % _typename(it)))
+            continue
+        iid = fv_str(errs, base, it, "id", 1, 16)
+        if iid:
+            if not ID_RE.match(iid):
+                errs.append(("E105", base + ".id", "id %r 不符 ^[a-z][a-z0-9_-]{0,15}$" % iid))
+            elif iid in ids:
+                errs.append(("E105", base + ".id", "id %r 重复" % iid))
+            ids.append(iid)
+        fv_str(errs, base, it, "name", 1, 14)
+        fv_str(errs, base, it, "oneliner", 10, 40)
+        mech = fv_list(errs, base, it, "mechanism", 3, 5)
+        for k, m in enumerate(mech or []):
+            mp = "%s.mechanism[%d]" % (base, k)
+            if not isinstance(m, dict):
+                errs.append(("E103", mp, "期望 object，得到 %s" % _typename(m)))
+                continue
+            fv_str(errs, mp, m, "step", 1, 10)
+            fv_str(errs, mp, m, "text", 1, 70)
+        sc = fv_list(errs, base, it, "scenes", 2, 3)
+        for k, m in enumerate(sc or []):
+            mp = "%s.scenes[%d]" % (base, k)
+            if not isinstance(m, dict):
+                errs.append(("E103", mp, "期望 object，得到 %s" % _typename(m)))
+                continue
+            fv_str(errs, mp, m, "when", 1, 40)
+            fv_str(errs, mp, m, "use", 1, 80)
+        lim = fv_list(errs, base, it, "limits", 1, 3)
+        for k, v in enumerate(lim or []):
+            if not isinstance(v, str):
+                errs.append(("E103", "%s.limits[%d]" % (base, k), "期望 string"))
+            elif len(v) > 60:
+                errs.append(("E104", "%s.limits[%d]" % (base, k), "%d 字，上限 60" % len(v)))
+        ev = it.get("evidence")
+        if ev is None:
+            noev += 1
+            continue
+        if not isinstance(ev, list):
+            errs.append(("E103", base + ".evidence", "期望 array，得到 %s" % _typename(ev)))
+            continue
+        if not (1 <= len(ev) <= 3):
+            errs.append(("E104", base + ".evidence", "%d 条，期望 1–3" % len(ev)))
+        if not ev:
+            noev += 1
+        for k, e in enumerate(ev):
+            ep = "%s.evidence[%d]" % (base, k)
+            if not isinstance(e, dict):
+                errs.append(("E103", ep, "期望 object，得到 %s" % _typename(e)))
+                continue
+            n = e.get("n")
+            if not isinstance(n, int) or isinstance(n, bool) or not (1 <= n <= 200):
+                errs.append(("E103", ep + ".n", "期望 1–200 的整数，得到 %s" % _typename(n)))
+            fv_str(errs, ep, e, "quote", 3, 90)
+    if ideas and noev > len(ideas) // 3:
+        errs.append(("E104", "ideas", "%d 个概念没有原文证据，超过三者之一" % noev))
+
+    ck = ir.get("checks")
+    if not isinstance(ck, list):
+        errs.append(("E103", "checks", "期望 array，得到 %s" % _typename(ck)))
+    elif not (3 <= len(ck) <= 6):
+        errs.append(("E104", "checks", "%d 条，期望 3–6" % len(ck)))
+    else:
+        for j, c in enumerate(ck):
+            base = "checks[%d]" % j
+            if not isinstance(c, dict):
+                errs.append(("E103", base, "期望 object，得到 %s" % _typename(c)))
+                continue
+            fv_str(errs, base, c, "situation", 1, 60)
+            fv_str(errs, base, c, "ask", 1, 30)
+            fv_str(errs, base, c, "why", 1, 80)
+            ans = c.get("answer")
+            if not isinstance(ans, str):
+                errs.append(("E103", base + ".answer", "期望 string，得到 %s" % _typename(ans)))
+            elif ans != "none" and ans not in ids:
+                errs.append(("E105", base + ".answer", "答案 %r 不是已有的概念 id" % ans))
+
+
 def lint_ir(ir):
     """返回 [(code, path, msg)]，空列表代表通过。"""
     errs = []
@@ -1034,8 +1157,8 @@ def lint_ir(ir):
     fv_str(errs, "meta", meta, "author", 0, 30, required=False)
     fv_str(errs, "meta", meta, "topic", 0, 30, required=False)
     mode = fv_str(errs, "meta", meta, "mode", 1, 12)
-    if mode and mode not in ("theme", "overview", "reader"):
-        errs.append(("E100", "meta.mode", "只支持 theme / overview / reader，收到 %r" % mode))
+    if mode and mode not in ("theme", "overview", "reader", "guide"):
+        errs.append(("E100", "meta.mode", "只支持 theme / overview / reader / guide，收到 %r" % mode))
     theme = fv_str(errs, "meta", meta, "theme", 1, 12)
     if theme and theme not in THEMES:
         errs.append(("E202", "meta.theme", "未知主题 %r（可选 %s）" % (theme, "/".join(THEME_NAMES))))
@@ -1059,15 +1182,19 @@ def lint_ir(ir):
     fv_str(errs, "hero", hero, "lede", 60, 140)
     fv_str(errs, "hero", hero, "thesis", 0, 60, required=False)
 
-    if mode in ("overview", "reader"):
+    if mode in ("overview", "reader", "guide"):
         if "sections" in ir:
-            huge = "overview 模式不用 sections，改用 frameworks/chapterMap/conceptMap/decisionRules" if mode == "overview" else "reader 模式不用 sections，改用 chapters[]"
+            huge = {"overview": "overview 模式不用 sections，改用 frameworks/chapterMap/conceptMap/decisionRules",
+                    "reader": "reader 模式不用 sections，改用 chapters[]",
+                    "guide": "guide 模式不用 sections，改用 ideas[]"}[mode]
             errs.append(("E100", "sections", huge))
         if mode == "overview":
             _v_overview(errs, ir)
-        else:
+        elif mode == "reader":
             _v_reader(errs, ir)
-    secs = ir.get("sections") if mode not in ("overview", "reader") else []
+        else:
+            _v_guide(errs, ir)
+    secs = ir.get("sections") if mode not in ("overview", "reader", "guide") else []
     if not isinstance(secs, list):
         errs.append(("E103", "sections", "期望 array，得到 %s" % _typename(secs)))
         secs = []
@@ -1497,6 +1624,122 @@ def render_reader(ir):
     return "\n".join(out) + "\n"
 
 
+
+# ---------------------------------------------------------------- 讲解模式渲染
+def render_guide(ir):
+    meta = ir.get("meta") or {}
+    hero = ir.get("hero") or {}
+    book = meta.get("book") or ""
+    theme = meta.get("theme") if meta.get("theme") in THEMES else "paper"
+    ideas = [x for x in (ir.get("ideas") or []) if isinstance(x, dict)]
+    names = dict((x.get("id"), x.get("name") or "") for x in ideas)
+
+    out = []
+    out.append("<!DOCTYPE html>")
+    out.append('<html lang="zh-CN" data-theme="%s">' % theme)
+    out.append("<head>")
+    out.append('<meta charset="utf-8">')
+    out.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    title = "《%s》" % book if book else ""
+    if hero.get("title"):
+        title = (title + " · " + hero["title"]) if title else hero["title"]
+    out.append("<title>%s</title>" % esc(title))
+    out.append('<meta name="generator" content="bookpage %s">' % VERSION)
+    out.append("<style>")
+    out.append(theme_block(theme))
+    out.append(BASE_CSS)
+    out.append(GUIDE_CSS)
+    out.append("</style>")
+    out.append("</head>")
+    out.append('<body data-book="%s">' % esc(book))
+    crumb = " · ".join([x for x in (book, meta.get("topic")) if x])
+    out.append('<div class="topbar"><span class="crumb">%s</span></div>' % esc(crumb))
+    out.append('<div class="page">')
+    out.append('<header class="hero">')
+    if hero.get("eyebrow"):
+        out.append('<div class="eyebrow">%s</div>' % esc(hero["eyebrow"]))
+    out.append("<h1>%s</h1>" % esc(hero.get("title") or ""))
+    if hero.get("lede"):
+        out.append('<p class="lede">%s</p>' % esc(hero["lede"]))
+    if hero.get("thesis"):
+        out.append('<div class="thesis">%s</div>' % esc(hero["thesis"]))
+    out.append("</header></div>")
+
+    out.append('<div class="gwrap"><aside class="gidx">')
+    if ir.get("premise"):
+        out.append('<p class="prem">%s</p>' % esc(ir["premise"]))
+    out.append("<ol>")
+    for it in ideas:
+        out.append('<li><a href="#i-%s">%s</a></li>' % (esc(it.get("id") or ""), esc(it.get("name") or "")))
+    out.append("</ol>")
+    out.append('<li style="list-style:none;margin-top:10px"><a href="#selfcheck">自测 →</a></li>')
+    out.append('</aside><main class="gmain">')
+
+    for g in (ir.get("support") or []):
+        if not isinstance(g, dict):
+            continue
+        out.append('<section class="supp">')
+        out.append("<h2>%s</h2>" % esc(g.get("title") or ""))
+        for r in (g.get("rows") or []):
+            if not isinstance(r, dict):
+                continue
+            out.append('<div class="sr"><b>%s</b><span>%s</span></div>'
+                       % (esc(r.get("label") or ""), esc(r.get("note") or "")))
+        out.append("</section>")
+
+    for it in ideas:
+        out.append('<section class="idea" id="i-%s">' % esc(it.get("id") or ""))
+        out.append("<h2>%s</h2>" % esc(it.get("name") or ""))
+        out.append('<p class="one">%s</p>' % esc(it.get("oneliner") or ""))
+        out.append('<ol class="mech">')
+        for m in (it.get("mechanism") or []):
+            if not isinstance(m, dict):
+                continue
+            out.append('<li><span class="st">%s</span><span class="tx">%s</span></li>'
+                       % (esc(m.get("step") or ""), esc(m.get("text") or "")))
+        out.append("</ol>")
+        sc = [x for x in (it.get("scenes") or []) if isinstance(x, dict)]
+        if sc:
+            out.append('<div class="scenes">')
+            for x in sc:
+                out.append('<div class="scene"><p class="w">%s</p><p class="u">%s</p></div>'
+                           % (esc(x.get("when") or ""), esc(x.get("use") or "")))
+            out.append("</div>")
+        lim = [x for x in (it.get("limits") or []) if isinstance(x, str)]
+        if lim:
+            out.append('<div class="limits"><p><b>别用的时候</b>：%s</p></div>' % esc("；".join(lim)))
+        ev = [x for x in (it.get("evidence") or []) if isinstance(x, dict)]
+        if ev:
+            out.append('<div class="ev">')
+            for e in ev:
+                out.append('<p><b>第 %s 章</b><i>「%s」</i></p>' % (esc(str(e.get("n"))), esc(e.get("quote") or "")))
+            out.append("</div>")
+        out.append("</section>")
+
+    ck = [x for x in (ir.get("checks") or []) if isinstance(x, dict)]
+    if ck:
+        out.append('<section class="checks" id="selfcheck">')
+        out.append("<h2>自测：换个事，你还会用吗</h2>")
+        out.append('<p class="sub">点开一条看答案；先自己选。</p>')
+        for c in ck:
+            ans = c.get("answer")
+            label = names.get(ans) if ans and ans != "none" else "哪一条都不适用"
+            out.append('<details class="ck"><summary>%s</summary>' % esc(c.get("situation") or ""))
+            out.append('<p class="ask">%s</p>' % esc(c.get("ask") or ""))
+            out.append('<p class="ans">答案：%s</p>' % esc(label))
+            out.append('<p class="why">%s</p>' % esc(c.get("why") or ""))
+            out.append("</details>")
+        out.append("</section>")
+
+    out.append("</main></div>")
+    if meta.get("sources"):
+        out.append('<footer class="footer">%s</footer>'
+                   % esc("；".join(str(x) for x in meta["sources"])))
+    out.append("</body>")
+    out.append("</html>")
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------- 页面组装
 def render_page(ir, degraded=()):
     mode = (ir.get("meta") or {}).get("mode")
@@ -1504,6 +1747,8 @@ def render_page(ir, degraded=()):
         return render_overview(ir)
     if mode == "reader":
         return render_reader(ir)
+    if mode == "guide":
+        return render_guide(ir)
     meta = ir.get("meta") or {}
     hero = ir.get("hero") or {}
     book = meta.get("book") or ""
@@ -2051,6 +2296,24 @@ def verify_ir(ir, source_text):
     chapters, method = split_chapters(source_text)
     mode = (ir.get("meta") or {}).get("mode") or "theme"
     stats = {"mode": mode, "chapters": 0, "quotes": 0, "params": 0, "coverage": []}
+    if mode == "guide":
+        stats["chapters"] = len(chapters)
+        for j, it in enumerate(ir.get("ideas") or []):
+            if not isinstance(it, dict):
+                continue
+            for k, e in enumerate(it.get("evidence") or []):
+                if not isinstance(e, dict):
+                    continue
+                stats["quotes"] += 1
+                n = e.get("n")
+                if not isinstance(n, int) or not (1 <= n <= len(chapters)):
+                    errs.append(("E301", "ideas[%d].evidence[%d].n" % (j, k), "章号超出范围"))
+                    continue
+                body = _match_key(chapters[n - 1][1])
+                if _match_key(e.get("quote") or "") not in body:
+                    errs.append(("E301", "ideas[%d].evidence[%d]" % (j, k),
+                                 "证据不在该章正文里（第 %d 章）" % n))
+        return errs, stats
     if mode == "reader":
         by_title = dict((_title_key(t), b) for t, b in chapters)
         for i, c in enumerate(ir.get("chapters") or []):
@@ -2237,6 +2500,53 @@ def cmd_render(argv):
     return EXIT_OK
 
 
+GUIDE_CSS = '''
+.gwrap{display:grid;grid-template-columns:190px 1fr;gap:30px;max-width:1080px;margin:0 auto;padding:0 24px 90px}
+.gidx{position:sticky;top:14px;align-self:start;font-size:12px;color:var(--muted)}
+.gidx .prem{border-left:3px solid var(--red);padding:2px 0 2px 10px;margin:0 0 14px;color:var(--ink);line-height:1.7}
+.gidx ol{list-style:none;margin:0;padding:0}
+.gidx li{margin:0 0 7px}
+.gidx a{color:var(--muted);text-decoration:none;display:block;padding:3px 6px;border-radius:6px}
+.gidx a:hover{background:var(--paper-deep);color:var(--ink)}
+.gmain{min-width:0}
+.idea{margin:0 0 46px;padding:0 0 34px;border-bottom:1px solid var(--line)}
+.idea:last-of-type{border-bottom:0}
+.idea h2{font-family:var(--font-display);font-size:23px;margin:0 0 6px}
+.one{color:var(--ink-soft-2);margin:0 0 18px;font-size:15px}
+.mech{margin:0 0 18px;padding:0;list-style:none;counter-reset:st}
+.mech li{display:flex;gap:10px;margin:0 0 9px;align-items:flex-start}
+.mech li:before{counter-increment:st;content:counter(st);flex:0 0 22px;height:22px;border-radius:50%;background:var(--tint-accent);color:var(--red);font-size:12px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.mech .st{font-weight:600;color:var(--ink);flex:0 0 92px;font-size:14px}
+.mech .tx{color:var(--ink-soft);font-size:14px;line-height:1.75}
+.scenes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:0 0 16px}
+.scene{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:11px 12px}
+.scene .w{font-size:13px;color:var(--ink);margin:0 0 5px;font-weight:600}
+.scene .u{font-size:13px;color:var(--muted);margin:0;line-height:1.7}
+.limits{margin:0 0 16px;padding:9px 12px;border-left:3px solid var(--gold);background:var(--paper-deep);border-radius:0 6px 6px 0}
+.limits p{margin:0;font-size:13px;color:var(--ink-soft-2)}
+.limits b{color:var(--ink);font-weight:600}
+.ev p{margin:0 0 6px;font-size:12px;color:var(--muted)}
+.ev b{color:var(--red);font-weight:600;margin-right:6px}
+.ev i{color:var(--ink-soft);font-style:normal}
+.checks{margin:20px 0 0}
+.checks h2{font-family:var(--font-display);font-size:21px;margin:0 0 6px}
+.checks .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+.ck{border:1px solid var(--line);border-radius:8px;background:var(--surface);margin:0 0 9px}
+.ck summary{cursor:pointer;padding:11px 13px;font-size:14px;color:var(--ink);list-style:none}
+.ck summary::-webkit-details-marker{display:none}
+.ck summary:before{content:"▸";color:var(--red);margin-right:7px}
+.ck[open] summary:before{content:"▾"}
+.ck p{margin:0;padding:0 13px 9px;font-size:13px;color:var(--ink-soft)}
+.ck .ans{color:var(--red)}
+.ck .why{color:var(--muted)}
+.supp{margin:0 0 34px}
+.supp h2{font-size:15px;color:var(--muted);font-weight:600;margin:0 0 8px}
+.supp .sr{display:flex;gap:10px;font-size:13px;padding:4px 0;border-bottom:1px dotted var(--line)}
+.supp .sr b{flex:0 0 110px;color:var(--ink)}
+.supp .sr span{color:var(--muted)}
+@media (max-width:880px){.gwrap{grid-template-columns:1fr}.gidx{position:static;margin-bottom:22px}}
+'''
+
 SHELF_CSS = """
 body{margin:0;background:#f7f3ea;color:#2b2b2b;font-family:"Noto Serif SC","Source Han Serif SC",Georgia,serif}
 .page{max-width:1000px;margin:0 auto;padding:56px 24px 80px}
@@ -2259,7 +2569,7 @@ h1{font-size:34px;margin:0 0 10px}
 footer{margin-top:36px;color:#a39785;font-size:12px;border-top:1px solid #e6ddcc;padding-top:14px}
 """
 
-SHELF_LABEL = {"theme": "主题页", "overview": "全书骨架", "reader": "速读页"}
+SHELF_LABEL = {"theme": "主题页", "overview": "全书骨架", "reader": "速读页", "guide": "讲解页"}
 
 
 def cmd_shelf(argv):
@@ -2302,6 +2612,8 @@ def cmd_shelf(argv):
                 count, unit = len(ir.get("chapters") or []), "章"
             elif mode == "overview":
                 count, unit = len(ir.get("chapterMap") or []), "章"
+            elif mode == "guide":
+                count, unit = len(ir.get("ideas") or []), "个概念"
             else:
                 count, unit = len(ir.get("sections") or []), "节"
             rows.append({"book": meta.get("book") or stem, "author": meta.get("author") or "",
@@ -2314,7 +2626,7 @@ def cmd_shelf(argv):
             continue
         seen.add(key)
         uniq.append(r)
-    order = {"reader": 0, "overview": 1, "theme": 2}
+    order = {"guide": 0, "reader": 1, "overview": 2, "theme": 3}
     uniq.sort(key=lambda r: (order.get(r["mode"], 9), r["book"]))
     out_dir = os.path.dirname(os.path.abspath(out))
     groups = {}
@@ -2374,6 +2686,7 @@ USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
   python bookpage.py draft   <书稿> [-o 包.md] [--per 6] [--chapter N]
 
 退出码：0 成功 / 1 校验有错 / 2 用法错误
+模式：theme（主题页）/ overview（全书骨架）/ reader（速读）/ guide（讲解，概念→机制→场景→边界→自测）
 组件：%s
 """ % (VERSION, "、".join(SIGNATURES))
 
@@ -2414,6 +2727,10 @@ def cmd_lint(argv):
         sys.stdout.write("lint: OK（reader：%d 章 / %d 条判断 / %d 组概念 / %d 个问题）\n"
                          % (len(ir.get("chapters") or []), len(ir.get("digest") or []),
                             len(ir.get("concepts") or []), len(ir.get("questions") or [])))
+    elif mode == "guide":
+        sys.stdout.write("lint: OK（guide：%d 个概念 / %d 道自测 / %d 组支撑）\n"
+                         % (len(ir.get("ideas") or []), len(ir.get("checks") or []),
+                            len(ir.get("support") or [])))
     else:
         sys.stdout.write("lint: OK（%d 个 section）\n" % len(ir.get("sections") or []))
     return EXIT_OK
@@ -2462,6 +2779,8 @@ def cmd_build(argv):
             len(ir.get("conceptMap") or []), len(ir.get("decisionRules") or []))
     elif mode == "reader":
         desc = "reader（%d 章）" % len(ir.get("chapters") or [])
+    elif mode == "guide":
+        desc = "guide（%d 个概念 / %d 道自测）" % (len(ir.get("ideas") or []), len(ir.get("checks") or []))
     else:
         n = len([s for s in (ir.get("sections") or []) if isinstance(s, dict)])
         desc = "%d sections" % n

@@ -79,6 +79,7 @@ def main() -> int:
         ("overview", "demo-overview.json", ("frameworks", "cm-row", "rule")),
         ("reader", "demo-reader.json", ("class=\"toc\"", "class=\"chap\"", "rFilter")),
         ("zhuangzi", "demo-reader-zhuangzi.json", ("class=\"tstep\"", "逍遥")),
+        ("guide", "demo-guide-chensilu.json", ("class=\"gwrap\"", "class=\"mech\"", "自测")),
     )
     for key, ir, need in products:
         html = build(ir, os.path.join(tmp, key + ".html"))

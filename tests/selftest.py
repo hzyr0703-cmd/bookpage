@@ -702,6 +702,137 @@ def a22():
         shutil.rmtree(td, ignore_errors=True)
 
 
+
+def _guide_fixture():
+    """造一份合法的 guide IR：6 个概念、3 道自测、1 组支撑。"""
+    quotes = {1: "外物进不了心，只在你眼前晃。",
+              2: "判断在你手里，改判断先于改处境。",
+              3: "此刻只有一刻，别用它在心里预演未来。"}
+    ideas = []
+    for n in range(1, 7):
+        ideas.append({
+            "id": "i%d" % n,
+            "name": "概念%d" % n,
+            "oneliner": "第%d个概念的一句话说法，尽量口语法" % n,
+            "mechanism": [{"step": "第一步", "text": "先说清这件事为什么成立"},
+                          {"step": "第二步", "text": "再说它在你身上怎么发生"},
+                          {"step": "第三步", "text": "最后说改哪一步有用"}],
+            "scenes": [{"when": "当你被当众否定的时候", "use": "先找那句判断，别急着认同它"},
+                       {"when": "当你整晚复盘旧事的时候", "use": "把它划进不可控那一栏"}],
+            "limits": ["对方没有共同事实时，这套读法失效"],
+            "evidence": [{"n": (n - 1) % 3 + 1, "quote": quotes[(n - 1) % 3 + 1]}],
+        })
+    return {
+        "schema": "bookpage/1",
+        "meta": {"book": "讲解夹具", "author": "测试", "mode": "guide", "theme": "paper",
+                 "topic": "讲解模式夹具", "sources": ["夹具原文三卷"]},
+        "hero": {"eyebrow": "测试 · 三卷", "title": "讲解夹具标题",
+                 "lede": "这是一份讲解模式的夹具：用来验证概念、机制、场景、边界、自测这五段是否齐全，也验证证据能不能逐字对回原文；夹具本身不追求好读，只追求把五段都填满。",
+                 "thesis": "能调用才算读懂"},
+        "premise": "一个人能守住的只有自己的判断",
+        "support": [{"kind": "map", "title": "两栏拆法",
+                     "rows": [{"label": "看法", "note": "不归你"},
+                              {"label": "判断", "note": "归你"}]}],
+        "ideas": ideas,
+        "checks": [{"situation": "当众被否定之后你觉得自己不行", "ask": "先动哪一步？",
+                    "answer": "i1", "why": "先改判断，再改方案"},
+                   {"situation": "旧事已经过去三个月你还在复盘", "ask": "该用哪条？",
+                    "answer": "i2", "why": "不可控那一栏交出去"},
+                   {"situation": "你想改造一个不肯改的人", "ask": "这算哪条？",
+                    "answer": "none", "why": "这是他的人生课题，不适用"}],
+    }
+
+
+def _guide_source(tmp):
+    p = os.path.join(tmp, "book.txt")
+    body = ("第1卷\n外物进不了心，只在你眼前晃。\n\n"
+            "第2卷\n判断在你手里，改判断先于改处境。\n\n"
+            "第3卷\n此刻只有一刻，别用它在心里预演未来。\n")
+    open(p, "w", encoding="utf-8", newline="\n").write(body)
+    return p
+
+
+def a23():
+    """A23：guide 模式——五段齐全、两次同哈希、无 tab、自测条数与 IR 一致。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a23-")
+    ir = _guide_fixture()
+    f = write_json_tmp(tmp, "guide.json", ir)
+    pg = run(["lint", f])
+    assert pg.returncode == 0, "guide lint 失败：%s" % pg.stdout
+    assert "guide" in pg.stdout, "lint 摘要没按 guide 报：%s" % pg.stdout
+    o1, o2 = os.path.join(tmp, "g1.html"), os.path.join(tmp, "g2.html")
+    b = run(["build", f, o1])
+    assert b.returncode == 0, "guide 构建失败：%s" % (b.stdout + b.stderr)
+    run(["build", f, o2])
+    assert open(o1, "rb").read() == open(o2, "rb").read(), "guide 两次构建不一致"
+    html = open(o1, encoding="utf-8").read()
+    assert '<div class="gwrap"' in html, "缺讲解页外壳"
+    assert html.count('<section class="idea"') == 6, "概念块数不对：%d" % html.count('<section class="idea"')
+    assert html.count('<details class="ck"') == 3, "自测条数不对"
+    assert "一个人能守住的只有自己的判断" in html, "缺 premise"
+    assert '<nav class="tabs"' not in html and 'class="tab"' not in html, "讲解页不该有 tab"
+    assert html.count('<div class="mech') == 0 and html.count('<ol class="mech"') == 6, "机制段数不对"
+    return "6 概念 / 3 自测；五段齐全、无 tab、两次同哈希"
+
+
+def a24():
+    """A24：guide 的 verify——证据逐字核对、章号越界与答案悬空都要拦。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a24-")
+    src = _guide_source(tmp)
+    ir = _guide_fixture()
+    f = write_json_tmp(tmp, "ok.json", ir)
+    v = run(["verify", f, "--source", src])
+    assert v.returncode == 0, "合法证据被拦：%s" % v.stdout
+    assert "OK" in v.stdout and "引文 6 条" in v.stdout, "verify 摘要不对：%s" % v.stdout
+
+    bad = json.loads(json.dumps(ir))
+    bad["ideas"][0]["evidence"][0]["quote"] = "这句话是编出来的，原文里没有。"
+    f2 = write_json_tmp(tmp, "bad-quote.json", bad)
+    v2 = run(["verify", f2, "--source", src])
+    assert v2.returncode == 1 and "E301" in v2.stdout, "编造证据没被拦：%s" % v2.stdout
+
+    out = json.loads(json.dumps(ir))
+    out["ideas"][0]["evidence"][0]["n"] = 99
+    f3 = write_json_tmp(tmp, "bad-n.json", out)
+    v3 = run(["verify", f3, "--source", src])
+    assert v3.returncode == 1 and "E301" in v3.stdout, "越界章号没被拦：%s" % v3.stdout
+
+    ans = json.loads(json.dumps(ir))
+    ans["checks"][0]["answer"] = "nope"
+    f4 = write_json_tmp(tmp, "bad-answer.json", ans)
+    p4 = run(["lint", f4])
+    assert p4.returncode == 1 and "E105" in p4.stdout, "答案悬空没被拦：%s" % p4.stdout
+    return "证据命中 + 编造/越界/答案悬空三类错误全部拦下"
+
+
+def a25():
+    """A25：guide 的边界——缺 limits、概念过多、证据覆盖不足都要拦。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a25-")
+    ir = _guide_fixture()
+
+    no_lim = json.loads(json.dumps(ir))
+    no_lim["ideas"][0].pop("limits")
+    f1 = write_json_tmp(tmp, "no-limits.json", no_lim)
+    p1 = run(["lint", f1])
+    assert p1.returncode == 1 and "E102" in p1.stdout, "缺 limits 没被拦：%s" % p1.stdout
+
+    many = json.loads(json.dumps(ir))
+    while len(many["ideas"]) < 13:
+        n = len(many["ideas"]) + 1
+        many["ideas"].append(dict(many["ideas"][0], id="i%d" % n, name="概念%d" % n))
+    f2 = write_json_tmp(tmp, "many.json", many)
+    p2 = run(["lint", f2])
+    assert p2.returncode == 1 and "E104" in p2.stdout, "概念过多没被拦：%s" % p2.stdout
+
+    no_ev = json.loads(json.dumps(ir))
+    for it in no_ev["ideas"][:3]:
+        it.pop("evidence")
+    f3 = write_json_tmp(tmp, "no-ev.json", no_ev)
+    p3 = run(["lint", f3])
+    assert p3.returncode == 1 and "E104" in p3.stdout, "证据覆盖不足没被拦：%s" % p3.stdout
+    return "缺 limits / 超 12 个概念 / 无证据过半，三种越界全部 E102 或 E104"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -725,6 +856,9 @@ def main():
     check("A20", "verify 要点引号：真原话放行、编造拦截、繁简折叠", a20)
     check("A21", "长书分卷：120 章 / 6 组渲染一致，错误分组一律 E104", a21)
     check("A22", "split 目录块 / 假章 / 合并回目 / 校注标记", a22)
+    check("A23", "guide 模式：五段齐全、无 tab、两次同哈希", a23)
+    check("A24", "guide verify：证据逐字核对，编造/越界/悬空全拦", a24)
+    check("A25", "guide 边界：缺 limits、概念过多、证据不足", a25)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

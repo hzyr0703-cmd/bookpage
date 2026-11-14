@@ -1,6 +1,6 @@
 ---
 name: bookpage
-description: 把书的一个主题编成一张离线可开的交互教学页：模型只写结构化 IR（JSON），由确定性渲染器产出单文件 HTML，同一份 IR 两次构建字节级相同。当用户要把某本书/某章/某主题做成可点击的学习页、且希望结果稳定可复现（不靠每次手工拼 DOM）时使用。
+description: 把书编成一张离线可开的交互页：模型只写结构化 IR（JSON），由确定性渲染器产出单文件 HTML，同一份 IR 两次构建字节级相同。四种模式：theme（主题教学页）/ overview（全书概览）/ reader（全书速读）/ guide（讲解页：概念→机制→场景→边界→自测）。当用户要把某本书/某章/某主题做成可点击、可复现的学习页，或要让读者读完能带走可调用的方法时使用。
 ---
 
 # bookpage
@@ -20,6 +20,8 @@ description: 把书的一个主题编成一张离线可开的交互教学页：�
 | 一次性交付、只求好看，不要求可复现 | book-to-webpage（组件资产丰富，但每次结果不同） |
 | 要可回归、要能只改一处再重渲、要在 CI 里验 | **bookpage（本 skill）** |
 | 需要全书概览（框架网格/章节地图/概念地图/决策规则） | **bookpage 的 `mode: overview`**（见下节） |
+| 要让读者滚完一页就能"在真实事情里调用"书里的方法 | **bookpage 的 `mode: guide`**（讲解页：概念→机制→场景→边界→自测） |
+| 要把一本长书逐章过一遍（章卡 + 目录 + 已读标记） | **bookpage 的 `mode: reader`**（见下节） |
 
 ## 流程
 
@@ -200,6 +202,67 @@ python bookpage.py split <书> -o chapters/     # 输出 ch-01.md … + index.js
 
 写作纪律：`role` 说"这章在全书里干什么"，`gist` 说"这章发生了什么"，两者不要互相复述；`digest` 不要写成章节列表，要写成判断，并给每条判断挂 1–3 个章号（`refs`），让读者能跳回去核对。
 
+
+## 讲解模式（`meta.mode = "guide"`）
+
+判据只有一条：**读者下次遇到这类事，能不能想起这一页里的某一句并照着做**。所以这一页不按章组织，按**能调用的概念**组织：全书只留 6–12 个概念，每个概念写清「它为什么成立（机制）→ 什么时候用（场景）→ 什么时候别用（边界）→ 原书哪里说过（证据）」，末尾给 3–6 道自测题让读者先自己选。同样**不要写 `sections`**（写了报 E100），也不要写 `chapters[]`。
+
+> 判据来自用户：理解 = 能在真实的事情里调用那个知识。章节卡是"目录替代品"，概念卡才是可调用的东西。
+
+```json
+{
+  "schema": "bookpage/1",
+  "meta": {"book": "书名", "author": "作者", "mode": "guide", "theme": "paper",
+           "topic": "能带走什么", "sources": ["版本 / 译本 / 年份"]},
+  "hero": {"eyebrow": "作者 · 年份", "title": "一句主张", "lede": "60–120 字", "thesis": "20–60 字"},
+  "premise": "10–40 字：全书只此一句的前提，整页的判断都从它长出来",
+  "support": [
+    {"kind": "map", "title": "≤14 字：一张分栏表", "rows": [{"label": "≤10 字", "note": "≤40 字"}, {"label": "…", "note": "…"}]}
+  ],
+  "ideas": [
+    {"id": "judgement", "name": "≤14 字：概念名",
+     "oneliner": "10–40 字：一句口语说法",
+     "mechanism": [{"step": "≤10 字", "text": "≤70 字：这一步怎么发生"}, {"…3–5 条"}],
+     "scenes": [{"when": "≤40 字：什么情形", "use": "≤80 字：具体怎么做"}, {"…2–3 条"}],
+     "limits": ["≤60 字：什么时候这套不成立"],
+     "evidence": [{"n": 2, "quote": "≤90 字原文，逐字照录"}]}
+  ],
+  "checks": [{"situation": "≤45 字", "ask": "≤30 字", "answer": "某个 idea 的 id 或 none", "why": "≤70 字"}]
+}
+```
+
+| 字段 | 约束 | 说明 |
+| --- | --- | --- |
+| `premise` | 10–40 字 | 全书的出发点，页面顶部左侧常驻；写不出这一句，说明还没读到根 |
+| `ideas` | 6–12 个，`id` 用 `^[a-z][a-z0-9_-]{0,15}$` 且不重复 | 每个 id 是读者能记住的把手（`judgement`/`control`/`boundary`），别用 `idea1`；超过 12 个说明没做取舍 |
+| `oneliner` | 10–40 字 | 说人话的一句，不用书里的术语 |
+| `mechanism` | 3–5 条，`step` ≤10 字、`text` ≤70 字 | 机制是**因果链**，不是定义罗列：第一条说为什么成立，中间说它怎么在你身上发生，最后说改哪一步有用 |
+| `scenes` | 2–3 条，`when` ≤40 字、`use` ≤80 字 | 场景写**可复用的触发条件**（"当你被当众否定的时候"），不写某一次具体经历；`use` 要给出能立刻做的动作 |
+| `limits` | 1–3 条，≤60 字 | 边界比机制更值钱：什麼情况下这条不成立（对方没有共同事实、身体已经受伤、涉及法律责任） |
+| `evidence` | 0–3 条，`quote` ≤90 字、`n` 是章号 | 必须**逐字**照录原文（`verify` 会拿 `n` 去比 `chapters[n-1]`）；允许没有证据，但**无证据的概念不得超过三分之一**，否则 E104 |
+| `checks` | 3–6 道 | 自测题必须能用某个 idea 回答；`answer` 只能填 `ideas[].id` 或 `none`（`none` 用于"这题不该套用"的负例），填别的报 E105 |
+
+页面形态：hero（标题 + 一句主张 + thesis）→ 左侧常驻索引（`premise` + 概念名列表 + 直达自测）→ 每个概念一块（机制编号链 / 场景两卡 / 边界条 / 证据「第 N 章「…」」）→ `support` 分栏表（有则出现）→ 自测折叠题（点开看答案与理由）。无 tab、无 JS、单页滚动。
+
+**写作纪律（最重要三条）**
+1. **概念必须能"用"**：写不出"什么时候用、怎么用"的概念，删掉，不要留在页面上充数。
+2. **机制写因果，不写定义**：`mechanism` 每条都要能回答"为什么"，不是把书里的定义换句话抄一遍。
+3. **边界必写**：一个只有正面用法的概念，读者一定会在不该用的地方用它；`limits` 写的就是"这一步会失效的地方"。
+
+**验证**：`verify` 在 guide 模式下只核 `evidence`（章号越界或引文不在该章正文 → E301）。判断层（`oneliner`/`mechanism`/`scenes`）无法机检，靠人读一遍；`checks` 的答案必须收到 `ideas` 里，这是唯一能机检的结构性约束。
+
+**典型流程（以《沉思录》为例）**：
+
+```bash
+python bookpage.py extract 沉思录.epub -o work/     # 得到 full_text.txt（12 卷）
+python bookpage.py split work/full_text.txt -o work/chapters/
+python bookpage.py draft work/full_text.txt -o work/draft.md   # 起草包（含每卷首句、末句、引号句）
+# 只读起草包写 demo-guide-*.json（8 个概念 + 4 道自测），不要通读全书
+python bookpage.py lint demo-guide-chensilu.json
+python bookpage.py verify demo-guide-chensilu.json --source work/full_text.txt
+python bookpage.py build demo-guide-chensilu.json out/chensilu-jiangjie.html
+```
+
 ## 错误码 → 改法
 
 | 码 | 含义 | 怎么修 |
@@ -223,8 +286,8 @@ python bookpage.py tokens <文本文件>                 # 中文感知的 token
 python bookpage.py chapters <文本文件>               # 中文章节计数（第N章/第N回/Chapter N）
 python bookpage.py extract <书> [-o out.txt]         # 书源 → 纯文本（docx/epub 零依赖，pdf 需 pypdf）
 python bookpage.py split  <文本文件> -o chapters/    # 按章切开：ch-NN.md + index.json
-python bookpage.py build  ir.json out.html           # 三种模式共用同一个 build（按 meta.mode 分派）
-python tests/selftest.py                             # A1–A7 + A9（提取）+ A10（overview）+ A11（reader/split）+ A12（主线/已读）
+python bookpage.py build  ir.json out.html           # 四种模式共用同一个 build（按 meta.mode 分派）
+python tests/selftest.py                             # 24 项：A1–A7 基础 / A9 提取 / A10 overview / A11 reader / A12 主线 / A23–A25 guide
 ```
 
 退出码：`0` 成功、`1` IR 校验失败、`2` 参数或读文件错误。

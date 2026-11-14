@@ -103,6 +103,9 @@ python tests/selftest.py
 | A15 | shelf 书房页：同目录 2 本 2 页（1 已构建 / 1 未构建）按书分组，链接可点、未构建标灰、两次输出同哈希、无占位符与外部引用 | PASS（2 个书组 / 2 枚页签，两次同哈希） |
 | A16 | outline：8 章候选、两次同哈希、长度短于原文、无虚词噪声、无占位符 | PASS（1,233 / 4,596 字节） |
 | A17 | draft：8 章起草包、两次同哈希、包内每句都能在原文逐字找到、长度显著短于原文、无占位符 | PASS（97 句全部命中，3,497 / 4,596 字节） |
+| A23 | guide 模式：五段齐全（premise/机制/场景/边界/证据）、自测条数与 IR 一致、无 tab、两次构建同哈希 | PASS（6 概念 / 3 自测 / `b7ddaea9…`） |
+| A24 | guide verify：证据逐字核对；编造引文、章号越界（E301）、答案悬空（E105）都被拦 | PASS（3 类错误各自命中） |
+| A25 | guide 边界：缺 `limits` → E102、概念超 12 个 → E104、无证据过半 → E104 | PASS |
 
 ## draft 起草包（把"写 IR"交给模型的接口）
 
@@ -172,13 +175,14 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
 `pdf` 需 `pypdf`、`mobi/azw3` 需 calibre —— 缺依赖时以退出码 2 明确说缺什么，不产出空文本。
 同一本公版书走 `.epub` 与 `.txt` 两条路径，字符数 46,157 vs 46,497、章节数均为 9。
 
-## 三种模式
+## 四种模式
 
 | mode | 页面形态 | 结构 | 什么时候用 |
 | --- | --- | --- | --- |
 | `theme`（默认） | 顶部 sticky tab + 分节面板，每节一个组件 | `sections[]` 4–7 节 | 讲透某个主题、某个机制 |
 | `overview` | 单页滚动，无 tab、无 JS 依赖 | `frameworks` / `chapterMap` / `conceptMap` / `decisionRules` 至少其一 | 先看全书骨架再决定读哪 |
 | `reader` | 单页滚动：全书判断卡 + 概念网格 + 论证主线 + 左侧 sticky 目录 + 章节卡 + 搜索框 + 滚动进度 + 已读标记 | `digest[]` 3–5 条（每条可带 `refs` 章号）、`concepts[]` 2–6 组、`thread[]` 3–6 环（可选）、`chapters[]` 3–120 章（role/gist/points/quote/text）、`parts[]` 2–12 组（可选；**超过 40 章必须分组**，各组章号拼接后须与全书章号一致） | **快速理解一本书**：先看全书在说什么，再按章扫读、点开原文核对 |
+| `guide` | 单页滚动：hero + 左侧常驻索引（premise/概念名/自测锚）+ 每个概念一块（机制链 / 场景卡 / 边界条 / 证据「第 N 章」）+ 分栏支撑表 + 自测折叠题；无 tab、无 JS | `premise` 10–40 字、`ideas[]` 6–12 个（oneliner 10–40、mechanism 3–5、scenes 2–3、limits 1–3、evidence 0–3 且无证据者 ≤1/3）、`checks[]` 3–6（answer 为 idea id 或 `none`）、`support[]` 0–2 组 | **让读者带走可调用的方法**：全书只留 6–12 个概念，写清机制、用法、边界与原文证据 |
 
 ## 组件（12 个，含 `prose` 逃生口）
 
