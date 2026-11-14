@@ -30,7 +30,7 @@ description: 把书编成一张离线可开的交互页：模型只写结构化 
 ```
 
 1. **拆书**：优先用本项目的 `python bookpage.py extract <书> -o full_text.txt`，再 `python bookpage.py split full_text.txt -o chapters/` 按章切开（docx/epub 零依赖、按 epub 内置顺序拼接、末尾打印字符数/章节数/token 估算），也可复用 `book-to-webpage` 的 `scripts/extract.py`（多产一份 `metadata.json`，但中文章节识别为 0）。全书超 5 万 token 时**不要整本读**：先 `chapters` 数章节，再 grep 标题定位边界，只切当前章。
-   拆完先跑 `python bookpage.py draft 书稿.txt -o 起草包.md`：每章只给**章题、字数、首句、末句、按句抽样的骨架、书内引号句**（真书上约原文的 22%–28%），包里的句子都是原文片段，直接抄进 `quote`/`text` 就能过 `verify`。需要引文候选时再跑 `python bookpage.py outline 书稿.txt -o 候选.md`。
+   拆完先跑 `python bookpage.py draft 书稿.txt -o 起草包.md`：每章只给**章题、字数、首句、末句、按句抽样的骨架、书内引号句**（真书上约原文的 22%–28%），包里的句子都是原文片段，直接抄进 `quote`/`text` 就能过 `verify`。长书（草稿包超过约 2 万 token）必须分卷：`python bookpage.py draft 书稿.txt -o 起草包/ --split 6` 会按字数均衡切出 `part-1.md…part-6.md` 和 `index.json`，每卷章号沿用全书章号（不重排），模型一次只读一卷。需要引文候选时再跑 `python bookpage.py outline 书稿.txt -o 候选.md`。
    写 `text` 段时优先用起草包里的原句，不要自己改写——`verify` 只认逐字一致的片段。
 2. **选题**：一个页面讲一个主题，选 4–7 节；每节一个组件；主题散布全书时先把相关章节列出来，再统一取用。
 3. **写 IR**：严格按下面的骨架。`signature` 只能取白名单值；字数上限先看契约表，别写完再被 lint 打回。
@@ -48,6 +48,7 @@ description: 把书编成一张离线可开的交互页：模型只写结构化 
 ```
 
 1. **draft**：`draft 书稿.txt -o 起草包.md`。起草包约原文的 22%–28%，每章给章题、字数、首句、末句、骨架、书内引号句，全部是原文片段。
+   **长书必须分卷**：整包超过约 2 万 token 时模型一次读不完（《红楼梦》1.09M 字符的整包实测 14.4 万 token），改用 `draft 书稿.txt -o 起草包/ --split 6`，每卷 1.2–2 万 token，模型按卷写、写完一卷交下一卷；`--part K` 可单独导出第 K 卷。
 2. **只读起草包**：把起草包交给模型时，明确禁止它回读全文、也禁止它"凭印象"补内容。它写的每一条 `quote`/`text` 都要能在起草包里找到原句。
 3. **lint / verify 修到全绿**：先 `lint` 改结构（未知组件、缺键、超界），再 `verify --source 书稿.txt` 改引文（E301 引文 / E302 片段 / E303 章题 / E304 数字与拉丁名 / E305 ev 片段 / E306 引号里的说法）。目标是一次过或两轮过；真书实测有 0 轮过的（3 章样本）。
 4. **人只审判断层**：`digest`（全书 3–5 条判断）、`thread`（主线 3–6 环）、每章 `role` 与 `gist` 的分工。机器校验不到这层，只能人看；这是 3 分钟的事，不是 1 小时。
@@ -61,7 +62,7 @@ description: 把书编成一张离线可开的交互页：模型只写结构化 
 | 命令 | 干什么 | 什么时候用 |
 | --- | --- | --- |
 | `outline <书稿> [-o 候选.md]` | 每章首句/末句/书内引号句，供写 IR 时挑引文 | 拆完书先跑，省掉逐章回读 |
-| `draft <书稿> [-o 包.md] [--per 6] [--chapter N]` | 每章脉络：章题 / 字数 / 首句 / 末句 / 按句抽样骨架 / 书内引号句，全部取自原文 | 写 IR 前跑一次；真书上只有原文的 22%–28%，回读全文的替代品 |
+| `draft <书稿> [-o 包.md \| 目录/] [--per 6] [--chapter N] [--split N] [--part K]` | 每章脉络：章题 / 字数 / 首句 / 末句 / 按句抽样骨架 / 书内引号句，全部取自原文；`--split N` 按字数均衡分 N 卷并写 `index.json`，`--part K` 只导出第 K 卷 | 写 IR 前跑一次；真书上只有原文的 22%–28%，回读全文的替代品；长书必须分卷 |
 | `verify <ir.json> --source <书稿.txt>` | 引文/原文片段/章题是否真在书稿里 + 覆盖率 | **每本书都要跑**。它抓的是"凭记忆编原文"这类最难自查的错误；扫描书没有文本源，只能跳过并在这里说明 |
 | `render <file.pdf> [-o dir] [--dpi 180] [--pages 1-8]` | 抽样 5 页判文本层，把指定页渲成 PNG，并打印「书版页码 = 物理页 - 前置页数」 | 拿到 PDF 先跑一次：有文本层走 `extract`，没有就走"渲染 + 看图转录" |
 | `shelf [dir ...] [-o index.html]` | 把若干目录里的 IR 收成一页**书房**：按书分组，一本书的速读页/骨架页/主题页排成一行，已构建的给链接，没构建的标灰 | 交付多本书时，给用户一个入口，而不是让他自己找文件 |
@@ -257,6 +258,7 @@ python bookpage.py split <书> -o chapters/     # 输出 ch-01.md … + index.js
 python bookpage.py extract 沉思录.epub -o work/     # 得到 full_text.txt（12 卷）
 python bookpage.py split work/full_text.txt -o work/chapters/
 python bookpage.py draft work/full_text.txt -o work/draft.md   # 起草包（含每卷首句、末句、引号句）
+python bookpage.py draft work/full_text.txt -o work/draft/ --split 6   # 长书分卷，每卷单独喂模型
 # 只读起草包写 demo-guide-*.json（8 个概念 + 4 道自测），不要通读全书
 python bookpage.py lint demo-guide-chensilu.json
 python bookpage.py verify demo-guide-chensilu.json --source work/full_text.txt

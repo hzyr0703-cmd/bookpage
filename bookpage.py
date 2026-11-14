@@ -2942,6 +2942,48 @@ def _sentence_split(body):
 
 QUOTE_MARK = re.compile(r"[「『][^」』]{6,90}[」』]|“[^”]{6,90}”")
 
+NOTE_HEAD = re.compile(r"^\s*(?:〔[一二三四五六七八九十百\d]+〕|\[\d+\]|\(\d+\))")
+NOTE_WORDS = ("原作", "校注", "底本", "参见", "一说", "据程", "据脂", "整理者")
+# 书末词语注释行（「踹窝：路面上践踏成的坑窝」）；排除「宝玉道：…」这类对白
+GLOSS_RE = re.compile(r"^([\u4e00-\u9fff·]{1,6})[：:]")
+GLOSS_TAIL_RE = re.compile(r"(道|说|說|问|問|曰|笑|答|云|骂|叫)$")
+
+
+def _is_gloss(line):
+    """词条注释行：短词 + 冒号 + 解释，且词尾不是"道/说/问"这类对白引导词。"""
+    t = line.strip()
+    if len(t) > 40 or "「" in t or "“" in t:
+        return False
+    m = GLOSS_RE.match(t)
+    if not m:
+        return False
+    return not GLOSS_TAIL_RE.search(m.group(1))
+
+
+def _strip_tail_notes(body):
+    """切掉章末的注释尾块：词语注释与校勘记常被 epub 拼在正文末尾。
+
+    只从尾部连续剥离，碰到第一行正常正文就停，避免误删中间内容。
+    """
+    lines = body.split("\n")
+    while lines:
+        last = lines[-1].strip()
+        if not last:
+            lines.pop()
+            continue
+        if _is_gloss(last) or _is_note(last):
+            lines.pop()
+            continue
+        break
+    return "\n".join(lines)
+
+
+def _is_note(s):
+    """校注行不是正文：以〔一〕/[1]/(1) 开头，或含"原作/校注/底本"等校勘词。"""
+    if NOTE_HEAD.match(s):
+        return True
+    return any(w in s for w in NOTE_WORDS)
+
 
 def _candidates(body, terms, per=4):
     """章节候选引文：带引号的句子 > 含高频专名的短句 > 章首句。"""
@@ -2978,7 +3020,7 @@ def outline_book(text, chapters, per=4):
                          if x.strip() and not x.strip().startswith("#"))
         paras = [p for p in body.split("\n") if p.strip()]
         lines.append("## 第 %d 章 %s（%d 字 / %d 段）" % (idx, title, len(body), len(paras)))
-        sents = [x for x in _sentence_split(body) if len(x) >= 8]
+        sents = [x for x in _sentence_split(body) if len(x) >= 8 and not _is_note(x)]
         if sents:
             lines.append("- 首句：%s" % sents[0])
             if len(sents) > 1:
@@ -3003,22 +3045,32 @@ def _clip(text, n):
     return cut
 
 
-def draft_pack(text, chapters, per=6, head=70, lead=14):
+def draft_pack(text, chapters, per=6, head=70, lead=14, start=1, part=None, total_chars=None):
     """给"模型写 IR"用的上下文包：每章只留脉络，不留全文。
 
     每条目都设计成能被 verify 认账：章题、段首、引号句都直接取自原文片段，
     模型若照抄不会失真；若自己改写，verify 会报 E301/E302。
+
+    start：本包第一章的全局章号（分卷时第 2 卷从第 21 章开始，章号不能重排）；
+    part：(k, n) 表示这是第 k/n 卷，只影响抬头文字。
     """
-    lines = ["# 起草包（只含脉络，不含全文）", "",
-             "共 %d 章 / %d 字。写 IR 时只用本文件，不要回读全文。" % (len(chapters), len(text)),
+    first, last = start, start + len(chapters) - 1
+    if part:
+        head_line = ("第 %d/%d 卷：第 %d–%d 章 / 原文 %d 字（全书 %d 字）。只写这一卷，写完交给下一卷。"
+                     % (part[0], part[1], first, last,
+                        sum(len(b) for _, b in chapters), total_chars or len(text)))
+    else:
+        head_line = "共 %d 章 / %d 字。写 IR 时只用本文件，不要回读全文。" % (len(chapters), len(text))
+    lines = ["# 起草包（只含脉络，不含全文）", "", head_line,
              "纪律：quote 与 text 必须逐字取自原文（本包里的句子可直接用），改写会被 verify 报错。",
              ""]
-    for idx, (title, body) in enumerate(chapters, 1):
+    for idx, (title, body) in enumerate(chapters, start):
         body = "\n".join(x for x in body.split("\n")
                          if x.strip() and not x.strip().startswith("#"))
+        body = _strip_tail_notes(body)
         paras = [p.strip() for p in body.split("\n") if p.strip()]
         lines.append("## 第 %d 章 %s（%d 字 / %d 段）" % (idx, title, len(body), len(paras)))
-        sents = [x for x in _sentence_split(body) if len(x) >= 8]
+        sents = [x for x in _sentence_split(body) if len(x) >= 8 and not _is_note(x)]
         if sents:
             lines.append("- 首句：%s" % _clip(sents[0], head))
             if len(sents) > 1:
@@ -3045,12 +3097,36 @@ def draft_pack(text, chapters, per=6, head=70, lead=14):
     return "\n".join(lines) + "\n"
 
 
+def split_parts(chapters, n):
+    """把章按字数均衡切成 n 卷（连续、不重排、每卷非空）。"""
+    m = len(chapters)
+    if n <= 1 or m <= 1:
+        return [list(chapters)]
+    n = min(n, m)
+    total = sum(len(b) for _, b in chapters)
+    parts, cur, cum = [], [], 0
+    for i, ch in enumerate(chapters):
+        cur.append(ch)
+        cum += len(ch[1])                  # 全书累计字数（不是本卷累计）
+        left = m - i - 1                   # 后面还剩几章
+        need = n - len(parts) - 1          # 关掉当前卷之后还需要开几卷
+        target = total * (len(parts) + 1) / n
+        if len(parts) < n - 1 and (cum >= target or left == need):
+            parts.append(cur)
+            cur = []
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 def cmd_draft(argv):
-    """draft <书稿> [-o 文件名] [--per N] [--chapter N]"""
+    """draft <书稿> [-o 文件/目录] [--per N] [--chapter N] [--split N] [--part K]"""
     out = None
     per = 6
     only = None
     src = None
+    nsplit = None
+    part_k = None
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -3063,14 +3139,21 @@ def cmd_draft(argv):
         elif a == "--chapter":
             i += 1
             only = int(argv[i])
+        elif a == "--split":
+            i += 1
+            nsplit = int(argv[i])
+        elif a == "--part":
+            i += 1
+            part_k = int(argv[i])
         elif a in ("--help", "-h"):
-            print("用法：draft <书稿> [-o 文件名] [--per 6] [--chapter N]", file=sys.stderr)
+            print("用法：draft <书稿> [-o 文件或目录] [--per 6] [--chapter N] "
+                  "[--split N] [--part K]", file=sys.stderr)
             return EXIT_USAGE
         elif not a.startswith("-") and src is None:
             src = a
         i += 1
     if not src:
-        print("ERROR: draft 需要一份书稿。用法：draft <书稿> [-o 文件名]", file=sys.stderr)
+        print("ERROR: draft 需要一份书稿。用法：draft <书稿> [-o 文件或目录]", file=sys.stderr)
         return EXIT_USAGE
     text = strip_boilerplate(read_text(src))
     chapters, method = split_chapters(text, max_chars=6000)
@@ -3079,12 +3162,79 @@ def cmd_draft(argv):
             print("ERROR: --chapter 超出范围（共 %d 章）" % len(chapters), file=sys.stderr)
             return EXIT_USAGE
         chapters = [chapters[only - 1]]
+    if part_k is not None and nsplit is None:
+        print("ERROR: --part 必须和 --split 一起用", file=sys.stderr)
+        return EXIT_USAGE
+
+    # 单卷模式：只把第 K 卷打到屏幕/文件
+    if nsplit and part_k:
+        parts = split_parts(chapters, nsplit)
+        if part_k < 1 or part_k > len(parts):
+            print("ERROR: --part 超出范围（共 %d 卷）" % len(parts), file=sys.stderr)
+            return EXIT_USAGE
+        start = 1 + sum(len(p) for p in parts[:part_k - 1])
+        md = draft_pack(text, parts[part_k - 1], per=per, start=start,
+                        part=(part_k, len(parts)), total_chars=len(text))
+        if out:
+            with open(out, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(md)
+            print("draft: 第 %d/%d 卷（第 %d–%d 章）/ %d 字 -> %s"
+                  % (part_k, len(parts), start, start + len(parts[part_k - 1]) - 1, len(md), out))
+        else:
+            sys.stdout.write(md)
+        return EXIT_OK
+
+    # 分卷模式：写 part-1.md … part-N.md + index.json
+    if nsplit:
+        if not out:
+            print("ERROR: --split 需要 -o 指定输出目录（如 -o work/draft/）", file=sys.stderr)
+            return EXIT_USAGE
+        target = out          # --split 下 -o 一律当目录，不存在就建
+        os.makedirs(target, exist_ok=True)
+        parts = split_parts(chapters, nsplit)
+        rows = []
+        start = 1
+        for k, part in enumerate(parts, 1):
+            md = draft_pack(text, part, per=per, start=start,
+                            part=(k, len(parts)), total_chars=len(text))
+            name = "part-%d.md" % k
+            with open(os.path.join(target, name), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(md)
+            rows.append({"n": k, "file": name, "start": start,
+                         "end": start + len(part) - 1,
+                         "chapters": len(part),
+                         "source_chars": sum(len(b) for _, b in part),
+                         "pack_chars": len(md),
+                         "pack_tokens": estimate_tokens(md)})
+            start += len(part)
+        meta = {"source": src, "method": method, "total_chapters": len(chapters),
+                "total_chars": len(text), "parts": rows}
+        with open(os.path.join(target, "index.json"), "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2, sort_keys=True)
+            fh.write("\n")
+        print("draft: %d 章 -> %d 卷，共 %d 字（原文 %d 字）"
+              % (len(chapters), len(parts), sum(r["pack_chars"] for r in rows), len(text)))
+        for r in rows:
+            print("  第 %d 卷  第 %d–%d 章  %6d 字  约 %5d tokens  %s"
+                  % (r["n"], r["start"], r["end"], r["pack_chars"], r["pack_tokens"], r["file"]))
+        print("  索引：%s" % os.path.join(target, "index.json"))
+        return EXIT_OK
+
     md = draft_pack(text, chapters, per=per)
     if out:
-        with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        if isdir_hint(out) or os.path.isdir(out):
+            d = out
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, "draft.md")
+        else:
+            d = os.path.dirname(out)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            dest = out
+        with open(dest, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(md)
-        print("draft: %d 章 / 切分方式 %s / %d 字 -> %s"
-              % (len(chapters), method, len(md), out))
+        print("draft: %d 章 / 切分方式 %s / %d 字（约 %d tokens）-> %s"
+              % (len(chapters), method, len(md), estimate_tokens(md), dest))
     else:
         sys.stdout.write(md)
     return EXIT_OK

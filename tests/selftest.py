@@ -833,6 +833,54 @@ def a25():
     return "缺 limits / 超 12 个概念 / 无证据过半，三种越界全部 E102 或 E104"
 
 
+def a26():
+    """A26：draft 按卷切分——章号连续不重排、每卷都可单独喂给模型、--part 与落盘一致。"""
+    tmp = tempfile.mkdtemp(prefix="bookpage-a26-")
+    d = os.path.join(tmp, "draft")
+    p = run(["draft", BOOK, "-o", d, "--split", "3"])
+    assert p.returncode == 0, "分卷失败：%s" % (p.stdout + p.stderr)
+    for k in (1, 2, 3):
+        f = os.path.join(d, "part-%d.md" % k)
+        assert os.path.exists(f), "缺第 %d 卷" % k
+    meta = json.load(open(os.path.join(d, "index.json"), encoding="utf-8"))
+    assert meta["total_chapters"] == 8, "章数不对：%d" % meta["total_chapters"]
+    seq = []
+    for row in meta["parts"]:
+        assert row["end"] >= row["start"], "第 %d 卷章号倒挂" % row["n"]
+        seq.extend(range(row["start"], row["end"] + 1))
+    assert seq == list(range(1, 9)), "分卷没有按顺序完整覆盖全书：%s" % seq
+    # 每卷体积必须远小于整本，否则切分没意义
+    full = run(["draft", BOOK, "-o", os.path.join(tmp, "all.md")])
+    assert full.returncode == 0
+    whole = len(open(os.path.join(tmp, "all.md"), encoding="utf-8").read())
+    for row in meta["parts"]:
+        one = open(os.path.join(d, row["file"]), encoding="utf-8").read()
+        assert len(one) < whole * 0.8, "第 %d 卷没比整本小：%d vs %d" % (row["n"], len(one), whole)
+        # 卷内章号必须是全局章号，不能从 1 重排（合并时会串号）
+        first_line = "## 第 %d 章" % row["start"]
+        assert first_line in one, "第 %d 卷没从全局第 %d 章起：%s" % (row["n"], row["start"], first_line)
+        assert "第 %d/3 卷" % row["n"] in one, "第 %d 卷抬头缺卷信息" % row["n"]
+    # --part K 单独输出应与落盘的同一卷逐字相同
+    p2 = os.path.join(tmp, "p2.md")
+    solo = run(["draft", BOOK, "-o", p2, "--split", "3", "--part", "2"])
+    assert solo.returncode == 0, "--part 失败：%s" % (solo.stdout + solo.stderr)
+    assert sha256(p2) == sha256(os.path.join(d, "part-2.md")), "--part 与分卷落盘不一致"
+    # 两次分卷字节一致（确定性）
+    d2 = os.path.join(tmp, "draft2")
+    assert run(["draft", BOOK, "-o", d2, "--split", "3"]).returncode == 0
+    for k in (1, 2, 3):
+        assert sha256(os.path.join(d2, "part-%d.md" % k)) == sha256(os.path.join(d, "part-%d.md" % k)), \
+            "第 %d 卷两次不一致" % k
+    # 错误路径：缺目录 / 只有 --part / 卷号越界
+    bad1 = run(["draft", BOOK, "--split", "3"])
+    assert bad1.returncode == 2, "--split 没给目录应报用法错误：%d" % bad1.returncode
+    bad2 = run(["draft", BOOK, "--part", "2"])
+    assert bad2.returncode == 2, "--part 单独使用应报用法错误：%d" % bad2.returncode
+    bad3 = run(["draft", BOOK, "-o", d, "--split", "3", "--part", "9"])
+    assert bad3.returncode == 2, "--part 越界应报用法错误：%d" % bad3.returncode
+    return "3 卷 / 章号 1–8 连续 / 每卷 <80% 整本 / --part 一致"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -859,6 +907,7 @@ def main():
     check("A23", "guide 模式：五段齐全、无 tab、两次同哈希", a23)
     check("A24", "guide verify：证据逐字核对，编造/越界/悬空全拦", a24)
     check("A25", "guide 边界：缺 limits、概念过多、证据不足", a25)
+    check("A26", "draft 分卷：章号连续、每卷可单喂、--part 一致", a26)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")
