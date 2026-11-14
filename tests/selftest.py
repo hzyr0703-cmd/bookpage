@@ -881,6 +881,70 @@ def a26():
     return "3 卷 / 章号 1–8 连续 / 每卷 <80% 整本 / --part 一致"
 
 
+def a27():
+    """A27：同一本书的多页互链 + verify --stamp 写回的核对页脚。
+
+    互链只允许站内相对路径（挡 http/https），写回只存数字（挡两次构建不同哈希）。
+    """
+    tmp = tempfile.mkdtemp(prefix="bookpage-a27-")
+    ir_path = os.path.join(tmp, "g.json")
+    ir = _guide_fixture()
+    ir["meta"]["links"] = [{"label": "速读页", "href": "../2026-11-12/chensilu-sudu.html"}]
+    json.dump(ir, open(ir_path, "w", encoding="utf-8", newline="\n"), ensure_ascii=False)
+    p = run(["lint", ir_path])
+    assert p.returncode == 0, "合法相对链接被拒：%s" % (p.stdout + p.stderr)
+
+    # 外链、绝对路径、非 html 一律拒
+    for bad_href in ("https://example.com/a.html", "/abs/a.html", "a.pdf"):
+        b = _guide_fixture()
+        b["meta"]["links"] = [{"label": "坏链", "href": bad_href}]
+        bp = os.path.join(tmp, "bad.json")
+        json.dump(b, open(bp, "w", encoding="utf-8", newline="\n"), ensure_ascii=False)
+        q = run(["lint", bp])
+        assert q.returncode != 0, "坏链 %r 没被拒" % bad_href
+
+    # 4 条链接超上限
+    b = _guide_fixture()
+    b["meta"]["links"] = [{"label": "页%d" % k, "href": "p%d.html" % k} for k in range(4)]
+    bp = os.path.join(tmp, "many.json")
+    json.dump(b, open(bp, "w", encoding="utf-8", newline="\n"), ensure_ascii=False)
+    assert run(["lint", bp]).returncode != 0, "4 条链接没被上限拦"
+
+    # 构建出来的页面里要有 nav 与链接文字
+    out_html = os.path.join(tmp, "g.html")
+    assert run(["build", ir_path, out_html]).returncode == 0
+    html = open(out_html, encoding="utf-8").read()
+    assert '<nav class="sib">' in html, "页面上没有互链导航"
+    assert "../2026-11-12/chensilu-sudu.html" in html, "互链 href 丢了"
+
+    # --stamp：写回数字后仍然两次同哈希，且页脚出现核对信息
+    src = _guide_source(tmp)
+    v = run(["verify", ir_path, "--source", src, "--stamp"])
+    assert v.returncode == 0, "verify --stamp 失败：%s" % (v.stdout + v.stderr)
+    stamped = json.load(open(ir_path, encoding="utf-8"))
+    assert isinstance(stamped["meta"].get("verified"), dict), "没写回 meta.verified"
+    h1, h2 = os.path.join(tmp, "s1.html"), os.path.join(tmp, "s2.html")
+    assert run(["build", ir_path, h1]).returncode == 0
+    assert run(["build", ir_path, h2]).returncode == 0
+    assert sha256(h1) == sha256(h2), "写回核对结果后两次构建不一致（说明存了时间之类）"
+    page = open(h1, encoding="utf-8").read()
+    assert '<div class="vnote">' in page, "页脚没有核对信息"
+    return "相对链接放行 / 外链与超限拒绝 / stamp 后仍同哈希"
+
+
+def a28():
+    """A28：窄屏版面 —— 477px 无横向溢出，且断点与 viewport 都在。"""
+    r = subprocess.run([sys.executable, os.path.join(HERE, "visual.py")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    out = (r.stdout or "") + (r.stderr or "")
+    assert r.returncode == 0, "窄屏版面或像素基线没过：%s" % out.strip()[:600]
+    if "SKIP" in out:
+        return "跳过（本机无 Edge）"
+    line = [x for x in out.splitlines() if "窄屏" in x]
+    return line[0] if line else "477px 无横向溢出"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -908,6 +972,8 @@ def main():
     check("A24", "guide verify：证据逐字核对，编造/越界/悬空全拦", a24)
     check("A25", "guide 边界：缺 limits、概念过多、证据不足", a25)
     check("A26", "draft 分卷：章号连续、每卷可单喂、--part 一致", a26)
+    check("A27", "互链只走站内相对路径；--stamp 写回后仍同哈希", a27)
+    check("A28", "窄屏 477px 无横向溢出，断点与 viewport 齐全", a28)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

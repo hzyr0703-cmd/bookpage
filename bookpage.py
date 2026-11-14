@@ -3,7 +3,7 @@
 """bookpage 1.0 — 把结构化 IR 渲染成确定性单文件 HTML。
 
 零第三方依赖（仅 Python 标准库）。四类子命令：
-    python bookpage.py lint   <ir.json>
+    python bookpage.py lint   <ir.json> [--strict]
     python bookpage.py build  <ir.json> <out.html> [--degrade]
     python bookpage.py tokens <file>
     python bookpage.py chapters <file>
@@ -27,6 +27,11 @@ SCHEMA = "bookpage/1"
 EXIT_OK = 0
 EXIT_LINT = 1
 EXIT_USAGE = 2
+
+# 只允许站内相对路径：不含协议、不以 / 开头、以 .html 结尾
+LINK_RE = re.compile(r"^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!/)[A-Za-z0-9_\-.\u4e00-\u9fff]+"
+                     r"(?:/[A-Za-z0-9_\-.\u4e00-\u9fff]+)*\.html$")
+
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,15}$")
 CHAPTER_RE = re.compile(r"第\s*[0-9〇○零一二三四五六七八九十百千两]+\s*[章节回卷篇]")
@@ -1173,6 +1178,46 @@ def lint_ir(ir):
                 if not isinstance(s, str):
                     errs.append(("E103", "meta.sources[%d]" % i, "期望 string"))
 
+    # 同一本书的其他页：只允许相对文件名，避免把离线页链到网上
+    links = meta.get("links")
+    if links is not None:
+        if not isinstance(links, list):
+            errs.append(("E103", "meta.links", "期望 array，得到 %s" % _typename(links)))
+        elif not (1 <= len(links) <= 3):
+            errs.append(("E104", "meta.links", "%d 条，期望 1–3" % len(links)))
+        else:
+            for li, lk in enumerate(links):
+                lp = "meta.links[%d]" % li
+                if not isinstance(lk, dict):
+                    errs.append(("E103", lp, "期望 object，得到 %s" % _typename(lk)))
+                    continue
+                fv_str(errs, lp, lk, "label", 1, 14)
+                href = fv_str(errs, lp, lk, "href", 1, 80)
+                if href and not LINK_RE.match(href):
+                    errs.append(("E100", lp + ".href",
+                                 "%r 只能是相对文件名（字母数字汉字 . _ - 加 .html）" % href))
+
+    # verify --stamp 写回的核对结果：只存数字，保证两次构建同哈希
+    ver = meta.get("verified")
+    if ver is not None:
+        if not isinstance(ver, dict):
+            errs.append(("E103", "meta.verified", "期望 object，得到 %s" % _typename(ver)))
+        else:
+            for k, lo, hi in (("chapters", 0, 500), ("quotes", 0, 5000), ("texts", 0, 5000)):
+                v = ver.get(k)
+                if v is None:
+                    continue
+                if not isinstance(v, int) or isinstance(v, bool):
+                    errs.append(("E103", "meta.verified." + k, "期望 integer，得到 %s" % _typename(v)))
+                elif not (lo <= v <= hi):
+                    errs.append(("E104", "meta.verified." + k, "%d，期望 %d–%d" % (v, lo, hi)))
+            cv = ver.get("coverage")
+            if cv is not None:
+                if not isinstance(cv, (int, float)) or isinstance(cv, bool):
+                    errs.append(("E103", "meta.verified.coverage", "期望 number，得到 %s" % _typename(cv)))
+                elif not (0 <= float(cv) <= 100):
+                    errs.append(("E104", "meta.verified.coverage", "%s，期望 0–100" % cv))
+
     hero = ir.get("hero")
     if not isinstance(hero, dict):
         errs.append(("E103", "hero", "期望 object，得到 %s" % _typename(hero)))
@@ -1245,9 +1290,81 @@ def lint_ir(ir):
     return errs
 
 
+SIB_CSS = """
+.sib{margin:26px auto 0;max-width:1080px;padding:12px 24px 0;box-sizing:border-box;font-size:14px;color:var(--muted);border-top:1px dashed var(--line)}
+.sib a{color:var(--red);text-decoration:none;border-bottom:1px solid transparent}
+.sib a:hover{border-bottom-color:var(--red)}
+.vnote{margin:6px auto 0;max-width:1080px;padding:0 24px;box-sizing:border-box;font-size:13px;color:var(--muted)}
+"""
+
+
+TRIGGER_WORDS = ("当", "每", "如果", "遇到", "正在", "突然", "开始", "被", "有人",
+                 "别人", "时候", "之前", "之后", "一", "要", "碰到", "碰上")
+EMPTY_LIMIT = ("视情况而定", "因人而异", "不一定", "看情况", "具体情况", "有时候",
+               "未必", "不一定适用", "灵活掌握")
+
+
+def soft_lint(ir):
+    """弱语义检查：结构没错但读起来是空话的地方。返回 W4xx，默认不判失败。
+
+    这些规则只做"提示"，因为它们判定的是表达质量而非契约；误报宁可漏，不可乱杀。
+    """
+    warns = []
+    mode = (ir.get("meta") or {}).get("mode")
+    if mode != "guide":
+        return warns
+    for j, it in enumerate(ir.get("ideas") or []):
+        if not isinstance(it, dict):
+            continue
+        base = "ideas[%d]" % j
+        name = it.get("name") or ""
+        one = it.get("oneliner") or ""
+        if len(name) >= 3 and one:
+            hit = sum(1 for ch in set(name) if ch in one)
+            if hit / float(len(set(name))) >= 0.7:
+                warns.append(("W401", base + ".oneliner",
+                              "几乎复述了 name「%s」，没有说清新在哪" % name))
+        for k, sc in enumerate(it.get("scenes") or []):
+            if not isinstance(sc, dict):
+                continue
+            when = sc.get("when") or ""
+            if when and not any(w in when for w in TRIGGER_WORDS):
+                warns.append(("W403", "%s.scenes[%d].when" % (base, k),
+                              "「%s」没有触发条件，读者对不上自己的处境" % when))
+        for k, lim in enumerate(it.get("limits") or []):
+            if isinstance(lim, str) and any(w in lim for w in EMPTY_LIMIT):
+                warns.append(("W404", "%s.limits[%d]" % (base, k),
+                              "「%s」等于没写边界" % lim))
+    return warns
+
+
 def format_error(e):
     code, path, msg = e
     return "%s %s: %s" % (code, path, msg) if path else "%s: %s" % (code, msg)
+
+
+def meta_nav(meta):
+    """同一本书的其他页 + verify 核对结果，两个渲染器共用，缺省返回空串。"""
+    out = []
+    links = [x for x in (meta.get("links") or []) if isinstance(x, dict) and x.get("href")]
+    if links:
+        items = " · ".join('<a href="%s">%s</a>' % (esc(x["href"]), esc(x.get("label") or ""))
+                           for x in links)
+        out.append('<nav class="sib">同一本书：%s</nav>' % items)
+    ver = meta.get("verified")
+    if isinstance(ver, dict) and ver:
+        bits = []
+        if ver.get("chapters"):
+            bits.append("核对 %d 章" % ver["chapters"])
+        if ver.get("quotes"):
+            bits.append("引文 %d 条" % ver["quotes"])
+        if ver.get("texts"):
+            bits.append("原文段 %d 段" % ver["texts"])
+        if ver.get("coverage"):   # 0% 不显示，免得"核对 0%"看着像没查
+            bits.append("平均覆盖 %.1f%%" % float(ver["coverage"]))
+        if bits:
+            out.append('<div class="vnote">%s · 均可在原书逐字查到</div>' % esc(" / ".join(bits)))
+    return "\n".join(out)
 
 
 def render_overview(ir):
@@ -1479,6 +1596,7 @@ def render_reader(ir):
     out.append("<style>")
     out.append(theme_block(theme))
     out.append(BASE_CSS)
+    out.append(SIB_CSS)
     out.append("</style>")
     out.append("</head>")
     out.append('<body data-book="%s">' % esc(book))
@@ -1613,6 +1731,7 @@ def render_reader(ir):
     out.append("</div>")
     out.append("</div>")
     foot = " · ".join([x for x in (book, meta.get("author")) if x])
+    out.append(meta_nav(meta))
     out.append('<footer class="footer">%s%s · 全书速读 · %d 章 · 主题 %s · 由 bookpage %s 生成</footer>'
                % (esc(foot), "，" if foot else "", len(chs), theme_name, VERSION))
     out.append("</main>")
@@ -1649,6 +1768,7 @@ def render_guide(ir):
     out.append(theme_block(theme))
     out.append(BASE_CSS)
     out.append(GUIDE_CSS)
+    out.append(SIB_CSS)
     out.append("</style>")
     out.append("</head>")
     out.append('<body data-book="%s">' % esc(book))
@@ -1732,6 +1852,7 @@ def render_guide(ir):
         out.append("</section>")
 
     out.append("</main></div>")
+    out.append(meta_nav(meta))
     if meta.get("sources"):
         out.append('<footer class="footer">%s</footer>'
                    % esc("；".join(str(x) for x in meta["sources"])))
@@ -2387,6 +2508,9 @@ def verify_ir(ir, source_text):
 
 def cmd_verify(argv):
     src = None
+    stamp = "--stamp" in argv
+    if stamp:
+        argv = [a for a in argv if a != "--stamp"]
     if "--source" in argv:
         i = argv.index("--source")
         if i + 1 >= len(argv):
@@ -2416,6 +2540,18 @@ def cmd_verify(argv):
     avg = sum(stats["coverage"]) / len(stats["coverage"]) if stats["coverage"] else 0.0
     sys.stdout.write("verify: OK（核对 %d 章 / 引文 %d 条 / 原文段 %d 段 / 平均覆盖 %.1f%%）\n"
                      % (stats["chapters"], stats["quotes"], stats["params"], avg * 100.0))
+    if stamp:
+        # 只写数字，不写时间：写回后两次构建仍然同哈希
+        ir.setdefault("meta", {})["verified"] = {
+            "chapters": stats["chapters"],
+            "quotes": stats["quotes"],
+            "texts": stats["params"],
+            "coverage": round(avg * 100.0, 1),
+        }
+        with open(argv[0], "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(ir, fh, ensure_ascii=False, indent=2, sort_keys=True)
+            fh.write("\n")
+        sys.stdout.write("已把核对结果写进 %s 的 meta.verified\n" % argv[0])
     return EXIT_OK
 
 
@@ -2639,9 +2775,11 @@ def cmd_shelf(argv):
         author = next((r["author"] for r in items if r["author"]), "")
         parts.append('<section class="bk">')
         parts.append("<h2>%s</h2>" % esc(bk))
-        parts.append('<p class="au">%s</p>'
-                     % ((esc(author) + " · 共 %d 页" % len(items)) if author
-                        else "共 %d 页" % len(items)))
+        meta_line = (esc(author) + " · 共 %d 页" % len(items)) if author else "共 %d 页" % len(items)
+        if len(items) > 1:
+            seq = " → ".join(SHELF_LABEL.get(r["mode"], r["mode"]) for r in items)
+            meta_line += " · 建议先读%s，顺序：%s" % (SHELF_LABEL.get(items[0]["mode"], items[0]["mode"]), seq)
+        parts.append('<p class="au">%s</p>' % meta_line)
         parts.append('<div class="row">')
         for r in items:
             if r["html"]:
@@ -2675,7 +2813,7 @@ USAGE = """bookpage %s — 确定性书页渲染器（零依赖）
 用法：
   python bookpage.py lint   <ir.json>
   python bookpage.py build  <ir.json> <out.html> [--degrade]
-  python bookpage.py verify <ir.json> --source <书稿>
+  python bookpage.py verify <ir.json> --source <书稿> [--stamp]
   python bookpage.py tokens <file>
   python bookpage.py chapters <file>
   python bookpage.py extract <book> [-o out.txt]
@@ -2702,8 +2840,11 @@ def _read_json(path):
 
 
 def cmd_lint(argv):
+    strict = "--strict" in argv
+    if strict:
+        argv = [a for a in argv if a != "--strict"]
     if len(argv) != 1:
-        return _fail_usage("lint 需要 1 个参数：<ir.json>")
+        return _fail_usage("lint 需要 1 个参数：<ir.json>（可选 --strict：把提示也当失败）")
     try:
         ir = _read_json(argv[0])
     except (IOError, OSError) as exc:
@@ -2716,6 +2857,13 @@ def cmd_lint(argv):
         sys.stdout.write(format_error(e) + "\n")
     if errs:
         sys.stdout.write("lint: %d 个错误\n" % len(errs))
+        return EXIT_LINT
+    warns = soft_lint(ir)
+    for w in warns:
+        sys.stdout.write("提示 " + format_error(w) + "\n")
+    if warns and strict:
+        sys.stdout.write("lint: %d 个错误 / %d 条提示（--strict，提示按失败计）\n"
+                         % (0, len(warns)))
         return EXIT_LINT
     mode = (ir.get("meta") or {}).get("mode") or "theme"
     if mode == "overview":

@@ -373,13 +373,29 @@
   "meta": {
     "author": "马可·奥勒留",
     "book": "沉思录",
+    "links": [
+      {
+        "href": "../2026-11-12/chensilu-sudu.html",
+        "label": "全书速读页（12 卷）"
+      },
+      {
+        "href": "../2026-11-12/chensilu-budongxin.html",
+        "label": "不动心专题页"
+      }
+    ],
     "mode": "guide",
     "sources": [
       "原文：马可·奥勒留《沉思录》中译本（epub，12 卷）",
       "所有引文逐字取自该书，index 里的章号即卷号；verify 会逐条核对"
     ],
     "theme": "paper",
-    "topic": "把能改的那一半攥在手里"
+    "topic": "把能改的那一半攥在手里",
+    "verified": {
+      "chapters": 12,
+      "coverage": 0.0,
+      "quotes": 8,
+      "texts": 0
+    }
   },
   "premise": "一个人能守住的，只有自己的判断和下一步动作",
   "schema": "bookpage/1",

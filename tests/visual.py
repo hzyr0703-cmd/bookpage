@@ -79,6 +79,56 @@ def md5(path):
     return h.hexdigest()
 
 
+NARROW = 477          # Edge 无头能压到的最窄视口（375/390 会被顶回 477）
+PROBE = ('<script>window.addEventListener("load",function(){var d=document.documentElement;'
+         'document.title="BP:"+d.scrollWidth+"/"+d.clientWidth;});</script>')
+
+
+def audit_css(html):
+    """静态检查版面在窄屏下不会必然溢出：viewport、两个断点、没有写死的宽块。
+
+    这不是浏览器测试，是防"有人加了 width:960px 又把 520 断点删了"这类回归。
+    """
+    with open(html, encoding="utf-8") as f:
+        src = f.read()
+    bad = []
+    if "width=device-width" not in src:
+        bad.append("缺 viewport meta")
+    for bw in ("880px", "520px"):
+        if "@media (max-width:%s)" % bw not in src and "@media (max-width: %s)" % bw not in src:
+            bad.append("缺 @media (max-width:%s) 断点" % bw)
+    import re
+    for m in re.finditer(r"(?<![-a-z])width:\s*(\d+)px", src):
+        if int(m.group(1)) > 340:
+            bad.append("写死了 width:%spx（窄屏会溢出）" % m.group(1))
+            break
+    return bad
+
+
+def narrow_check(edge, html):
+    """在 477px 下实测有没有横向滚动：scrollWidth 应等于 clientWidth。"""
+    tmpdir = tempfile.mkdtemp(prefix="bp-narrow-")
+    try:
+        with open(html, encoding="utf-8") as f:
+            src = f.read()
+        probe = os.path.join(tmpdir, "probe.html")
+        with open(probe, "w", encoding="utf-8", newline="\n") as f:
+            f.write(src.replace("</body>", PROBE + "\n</body>"))
+        r = subprocess.run([edge, "--headless=new", "--disable-gpu", "--window-size=%d,900" % NARROW,
+                            "--dump-dom", "file:///" + probe.replace("\\", "/")],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        import re
+        m = re.search(r"<title>BP:(\d+)/(\d+)</title>", r.stdout or "")
+        if not m:
+            return ["探查脚本没返回尺寸（页面可能报错）"]
+        sw, cw = int(m.group(1)), int(m.group(2))
+        if sw > cw + 1:
+            return ["%dpx 下有横向溢出：scrollWidth=%d > clientWidth=%d" % (NARROW, sw, cw)]
+        return []
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def main():
     update = "--update" in sys.argv
     edge = find_edge()
@@ -88,6 +138,7 @@ def main():
 
     tmp = tempfile.mkdtemp(prefix="bp-visual-")
     got = {}
+    layout_bad = []
     try:
         for name, ir in PAGES:
             html = os.path.join(tmp, name + ".html")
@@ -97,8 +148,19 @@ def main():
                 png = os.path.join(tmp, key + ".png")
                 shoot(edge, html, png, w, h)
                 got[key] = md5(png)
+            for b in audit_css(html):
+                layout_bad.append("%s %s" % (name, b))
+            for b in narrow_check(edge, html):
+                layout_bad.append("%s %s" % (name, b))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    if layout_bad:
+        print("FAIL 版面检查没过：")
+        for b in layout_bad:
+            print("  - " + b)
+        return 1
+    print("PASS 窄屏版面（%dpx 无横向溢出 + 断点/viewport 齐全，%d 页）" % (NARROW, len(PAGES)))
 
     if update:
         os.makedirs(os.path.dirname(BASELINE), exist_ok=True)
