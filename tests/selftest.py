@@ -945,6 +945,31 @@ def a28():
     return line[0] if line else "477px 无横向溢出"
 
 
+def a29():
+    """A29：`build` / `shelf` 的 -o 指向不存在的目录时要自动建目录。
+
+    原先两处都是直接 open() -> FileNotFoundError 抛栈，shelf 那次还会把
+    退出码留成 0（管道里看不出失败）。这类"换个目录就崩"的坑不该等用户踩。
+    """
+    tmp = tempfile.mkdtemp(prefix="bookpage-a29-")
+    deep = os.path.join(tmp, "a", "b", "c")
+    out_html = os.path.join(deep, "demo.html")
+    p = run(["build", DEMO, out_html])
+    assert p.returncode == 0, "build 到不存在的目录失败了：%s" % (p.stdout + p.stderr)
+    assert os.path.isfile(out_html), "build 没建出目录/文件：%s" % out_html
+    assert "Traceback" not in (p.stdout + p.stderr), "build 打了 traceback"
+
+    deep2 = os.path.join(tmp, "x", "y")
+    shelf_out = os.path.join(deep2, "index.html")
+    q = run(["shelf", os.path.dirname(DEMO), "-o", shelf_out])
+    assert q.returncode == 0, "shelf 到不存在的目录失败了：%s" % (q.stdout + q.stderr)
+    assert os.path.isfile(shelf_out), "shelf 没建出目录/文件：%s" % shelf_out
+    assert "Traceback" not in (q.stdout + q.stderr), "shelf 打了 traceback"
+    page = open(shelf_out, encoding="utf-8").read()
+    assert 'class="bk"' in page, "书房页没有书组"
+    return "build / shelf 都会自建输出目录，不再抛栈"
+
+
 def main():
 
     check("A1", "同输入两次构建字节一致", a1)
@@ -974,6 +999,7 @@ def main():
     check("A26", "draft 分卷：章号连续、每卷可单喂、--part 一致", a26)
     check("A27", "互链只走站内相对路径；--stamp 写回后仍同哈希", a27)
     check("A28", "窄屏 477px 无横向溢出，断点与 viewport 齐全", a28)
+    check("A29", "build / shelf 的 -o 指向不存在的目录时自建目录", a29)
 
     bar = "-" * 56
     sys.stdout.write(bar + "\n")

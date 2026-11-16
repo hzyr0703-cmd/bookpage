@@ -5,9 +5,9 @@
 模型只写结构化 IR（JSON），渲染器负责把它变成 HTML —— 因此同一份 IR 两次构建**字节级相同**，
 不需要模板抄写、不需要浏览器、不需要任何第三方包。
 
-- 设计稿：[output/2026-11-10/bookpage-design.md](../../output/2026-11-10/bookpage-design.md)
-- 逆向对象：book-to-webpage（见 [output/2026-11-10/book-to-webpage-reverse-engineering.md](../../output/2026-11-10/book-to-webpage-reverse-engineering.md)）
-- 代码：单文件 `bookpage.py`（约 1000 行，纯 Python 标准库）
+- 设计稿：[docs/2026-11-10-bookpage-design.md](docs/2026-11-10-bookpage-design.md)（竞品对比、IR 契约、组件契约、确定性规则）
+- 立项起点：先逆向了一个同类 skill（book-to-webpage）再定方案；那份逆向报告属于另一个项目，未随本仓库发布
+- 代码：单文件 `bookpage.py`（约 3,500 行，纯 Python 标准库）＋ `tests/` 里 28 项自检
 
 ## 作为 skill 安装
 
@@ -108,6 +108,7 @@ python tests/selftest.py
 | A26 | draft 分卷：章号连续不重排、每卷都远小于整本、`--part K` 与落盘逐字一致、两次分卷同哈希、缺目录/裸 `--part`/卷号越界全报用法错误 | PASS（8 章切 3 卷，二次一致） |
 | A27 | 互链只走站内相对路径（外链 / 绝对路径 / 非 html 一律拒，超 3 条拒）；`verify --stamp` 写回数字后两次构建仍同哈希，页脚出现核对信息 | PASS（相对链接放行 / 三类坏链拒绝 / stamp 后同哈希） |
 | A28 | 窄屏版面：477px 下 `scrollWidth == clientWidth`（无横向溢出），且 viewport 与 880/520 两个断点都在 | PASS（3 页全部无溢出） |
+| A29 | `build` / `shelf` 的 `-o` 指向不存在的目录时自建目录，不抛栈、退出码正确 | PASS（三级嵌套目录 + 多层书房目录） |
 | A23 | guide 模式：五段齐全（premise/机制/场景/边界/证据）、自测条数与 IR 一致、无 tab、两次构建同哈希 | PASS（6 概念 / 3 自测 / `b7ddaea9…`） |
 | A24 | guide verify：证据逐字核对；编造引文、章号越界（E301）、答案悬空（E105）都被拦 | PASS（3 类错误各自命中） |
 | A25 | guide 边界：缺 `limits` → E102、概念超 12 个 → E104、无证据过半 → E104 | PASS |
@@ -165,7 +166,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars \
   "file:///<绝对路径>/out/demo.html"
 ```
 
-已核对四个视角（截图在 `out/` 与 `../../output/2026-11-10/`）：
+已核对四个视角（截图放在工作区 `out/`，不入库）：
 
 | 视角 | 结果 |
 | A12 | 论证主线 + 已读标记：`thread` 环数与 IR 一致、主线章号锚点不悬空、`class="mark"` 按钮数 == 章节数、`id="rRead"` 计数器存在、内联 JS 含 localStorage 且无箭头函数、两次构建同哈希 | PASS（5 环 / 9 个按钮 / `7f44eb9f9b…`） |

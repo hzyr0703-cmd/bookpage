@@ -2783,7 +2783,11 @@ def cmd_shelf(argv):
         parts.append('<div class="row">')
         for r in items:
             if r["html"]:
-                href = os.path.relpath(os.path.abspath(r["html"]), out_dir).replace("\\", "/")
+                try:
+                    href = os.path.relpath(os.path.abspath(r["html"]), out_dir).replace("\\", "/")
+                except ValueError:
+                    # 跨盘符（D: 上的页面、C: 上的书房）没有相对路径，退回绝对路径
+                    href = os.path.abspath(r["html"]).replace("\\", "/")
                 parts.append('<a class="chip" href="%s">%s · %d %s</a>'
                              % (esc(href), SHELF_LABEL.get(r["mode"], r["mode"]), r["count"], r["unit"]))
             else:
@@ -2798,8 +2802,17 @@ def cmd_shelf(argv):
            "%s\n"
            "<footer>bookpage 生成 · 同目录下的 IR 会被自动收进来</footer>\n</div>\n</body>\n</html>\n"
            % (SHELF_CSS, len(books), len(uniq), body))
-    with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(doc)
+    out_parent = os.path.dirname(os.path.abspath(out))
+    if out_parent:
+        try:
+            os.makedirs(out_parent, exist_ok=True)
+        except OSError as exc:
+            return _fail_usage("建不了输出目录 %s（%s）" % (out_parent, exc))
+    try:
+        with io.open(out, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(doc)
+    except OSError as exc:
+        return _fail_usage("写不了 %s（%s）" % (out, exc))
     missing = sum(1 for r in uniq if not r["html"])
     sys.stdout.write("shelf: %d 本 -> %s（缺构建 %d 本）\n" % (len(uniq), out, missing))
     for r in uniq:
@@ -2918,8 +2931,17 @@ def cmd_build(argv):
                 degraded_index.add(int(m.group(1)))
 
     html = render_page(ir, degraded_index)
-    with open(dst, "wb") as fh:
-        fh.write(html.encode("utf-8"))
+    parent = os.path.dirname(os.path.abspath(dst))
+    if parent:
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as exc:
+            return _fail_usage("建不了输出目录 %s（%s）" % (parent, exc))
+    try:
+        with open(dst, "wb") as fh:
+            fh.write(html.encode("utf-8"))
+    except OSError as exc:
+        return _fail_usage("写不了 %s（%s）" % (dst, exc))
     mode = (ir.get("meta") or {}).get("mode") or "theme"
     if mode == "overview":
         desc = "overview（%d 框架 / %d 章 / %d 组概念 / %d 条规则）" % (
